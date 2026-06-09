@@ -1,59 +1,41 @@
-const connection = require('../config/database');
+const { sequelize } = require('../models');
+const { QueryTypes } = require('sequelize');
 
-exports.addressChart = (req, res) => {
-    const sql = 'SELECT count(addressline) as total, addressline FROM customer GROUP BY addressline ORDER BY total DESC';
+exports.addressChart = async (req, res) => {
     try {
-        connection.query(sql, (err, rows, fields) => {
-            // console.log(rows)
-            if (err instanceof Error) {
-                console.log(err);
-                return;
-            }
-            return res.status(200).json({
-                rows
-            })
-        });
+        const rows = await sequelize.query(
+            'SELECT COUNT(addressline) AS total, addressline FROM customer GROUP BY addressline ORDER BY total DESC',
+            { type: QueryTypes.SELECT }
+        );
+        return res.status(200).json({ rows });
     } catch (error) {
-        console.log(error)
+        console.error(error);
+        return res.status(500).json({ error: 'Failed to retrieve address metrics.' });
     }
-
-
 };
 
-exports.salesChart = (req, res) => {
-    const sql = 'SELECT monthname(oi.date_placed) as month, sum(ol.quantity * i.sell_price) as total FROM orderinfo oi INNER JOIN orderline ol ON oi.orderinfo_id = ol.orderinfo_id INNER JOIN item i ON i.item_id = ol.item_id GROUP BY month(oi.date_placed)';
+exports.salesChart = async (req, res) => {
     try {
-        connection.query(sql, (err, rows, fields) => {
-            if (err instanceof Error) {
-                console.log(err);
-                return;
-            }
-            return res.status(200).json({
-                rows,
-            })
-        });
+        const rows = await sequelize.query(
+            'SELECT MONTHNAME(oi.date_placed) AS month, SUM(ol.quantity * i.sell_price) AS total FROM orderinfo oi INNER JOIN orderline ol ON oi.orderinfo_id = ol.orderinfo_id INNER JOIN item i ON i.item_id = ol.item_id GROUP BY MONTH(oi.date_placed)',
+            { type: QueryTypes.SELECT }
+        );
+        return res.status(200).json({ rows });
     } catch (error) {
-        console.log(error)
+        console.error(error);
+        return res.status(500).json({ error: 'Failed to retrieve sales metrics.' });
     }
-
-
 };
 
-exports.itemsChart = (req, res) => {
-    const sql = 'SELECT i.description as items, sum(ol.quantity) as total FROM item i INNER JOIN orderline ol ON i.item_id = ol.item_id GROUP BY i.description';
+exports.itemsChart = async (req, res) => {
     try {
-        connection.query(sql, (err, rows, fields) => {
-            if (err instanceof Error) {
-                console.log(err);
-                return;
-            }
-            return res.status(200).json({
-                rows,
-            })
-        });
+        const rows = await sequelize.query(
+            'SELECT i.description AS items, SUM(ol.quantity) AS total FROM item i INNER JOIN orderline ol ON i.item_id = ol.item_id GROUP BY i.description',
+            { type: QueryTypes.SELECT }
+        );
+        return res.status(200).json({ rows });
     } catch (error) {
-        console.log(error)
+        console.error(error);
+        return res.status(500).json({ error: 'Failed to retrieve items metrics.' });
     }
-
-
 };

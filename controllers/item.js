@@ -1,151 +1,204 @@
-const connection = require('../config/database');
+const { Item, Stock, ItemImage, sequelize } = require('../models');
+const { Op } = require('sequelize');
 
-exports.getAllItems = (req, res) => {
-    const sql = 'SELECT * FROM item i INNER JOIN stock s ON i.item_id = s.item_id';
-
+exports.getAllItems = async (req, res) => {
     try {
-        connection.query(sql, (err, rows, fields) => {
-            if (err instanceof Error) {
-                console.log(err);
-                return;
-            }
-
-            // console.log(rows);
-            console.log(fields);
-            return res.status(200).json({
-                rows,
-            })
+        const items = await Item.findAll({
+            include: [
+                { model: Stock, as: 'stock' },
+                { model: ItemImage, as: 'images' }
+            ]
         });
+        
+        const rows = items.map(item => ({
+            item_id: item.item_id,
+            description: item.description,
+            cost_price: item.cost_price,
+            sell_price: item.sell_price,
+            img_path: item.img_path,
+            quantity: item.stock ? item.stock.quantity : 0,
+            images: item.images ? item.images.map(img => img.img_path) : []
+        }));
+        
+        return res.status(200).json({ rows });
     } catch (error) {
-        console.log(error)
+        console.error(error);
+        return res.status(500).json({ error: 'Failed to fetch items.' });
     }
 };
 
-exports.getSingleItem = (req, res,) => {
-    const sql = 'SELECT * FROM item i INNER JOIN stock s ON i.item_id = s.item_id  WHERE i.item_id = ?'
-    console.log(req.params)
-    const values = [parseInt(req.params.id)];
+exports.getSingleItem = async (req, res) => {
     try {
-        connection.execute(sql, values, (err, result, fields) => {
-            if (err instanceof Error) {
-                console.log(err);
-                return;
-            }
+        const item = await Item.findByPk(req.params.id, {
+            include: [
+                { model: Stock, as: 'stock' },
+                { model: ItemImage, as: 'images' }
+            ]
+        });
 
-            return res.status(200).json({
-                success: true,
-                result
-            })
+        if (!item) {
+            return res.status(404).json({ success: false, error: 'Item not found' });
+        }
+
+        const result = [{
+            item_id: item.item_id,
+            description: item.description,
+            cost_price: item.cost_price,
+            sell_price: item.sell_price,
+            img_path: item.img_path,
+            quantity: item.stock ? item.stock.quantity : 0,
+            images: item.images ? item.images.map(img => img.img_path) : []
+        }];
+
+        return res.status(200).json({ success: true, result });
+    } catch (error) {
+        console.error(error);
+        return res.status(500).json({ error: 'Failed to fetch item.' });
+    }
+};
+
+exports.createItem = async (req, res) => {
+    const t = await sequelize.transaction();
+    try {
+        const { description, cost_price, sell_price, quantity } = req.body;
+        
+        if (!description || !cost_price || !sell_price) {
+            await t.rollback();
+            return res.status(400).json({ error: 'Missing required fields' });
+        }
+
+        let images = [];
+        if (req.files && req.files.length > 0) {
+            images = req.files.map(file => file.path.replace(/\\/g, "/"));
+        }
+
+        const defaultHeroPath = images.length > 0 ? images[0] : null;
+
+        const newItem = await Item.create({
+            description,
+            cost_price,
+            sell_price,
+            img_path: defaultHeroPath
+        }, { transaction: t });
+
+        const itemId = newItem.item_id;
+
+        await Stock.create({
+            item_id: itemId,
+            quantity: quantity ? parseInt(quantity) : 0
+        }, { transaction: t });
+
+        if (images.length > 0) {
+            const imageRecords = images.map(path => ({
+                item_id: itemId,
+                img_path: path
+            }));
+            await ItemImage.bulkCreate(imageRecords, { transaction: t });
+        }
+
+        await t.commit();
+        return res.status(201).json({
+            success: true,
+            itemId,
+            image: defaultHeroPath,
+            images,
+            quantity
         });
     } catch (error) {
-        console.log(error)
+        await t.rollback();
+        console.error(error);
+        return res.status(500).json({ error: 'Failed to create item', details: error.message });
     }
-}
+};
 
-exports.createItem = (req, res, next) => {
+exports.updateItem = async (req, res) => {
+    const t = await sequelize.transaction();
+    try {
+        const id = req.params.id;
+        const { description, cost_price, sell_price, quantity } = req.body;
 
-    console.log(req.body, req.file)
-    const item = req.body
-    const image = req.file
-    console.log(item, image)
-    const { description, cost_price, sell_price, quantity } = req.body;
-    if (req.file) {
-        imagePath = req.file.path.replace(/\\/g, "/");
-    }
-
-    if (!description || !cost_price || !sell_price) {
-        return res.status(400).json({ error: 'Missing required fields' });
-    }
-
-    const sql = 'INSERT INTO item (description, cost_price, sell_price, img_path) VALUES (?, ?, ?, ?)';
-    const values = [description, cost_price, sell_price, imagePath];
-
-    connection.execute(sql, values, (err, result) => {
-        if (err) {
-            console.log(err);
-            return res.status(500).json({ error: 'Error inserting item', details: err });
+        if (!description || !cost_price || !sell_price) {
+            await t.rollback();
+            return res.status(400).json({ error: 'Missing required fields' });
         }
 
-        const itemId = result.insertId
-        //     console.log('item id', itemId)
+        const item = await Item.findByPk(id, { transaction: t });
+        if (!item) {
+            await t.rollback();
+            return res.status(404).json({ error: 'Item not found' });
+        }
 
-        const stockSql = 'INSERT INTO stock (item_id, quantity) VALUES (?, ?)';
-        const stockValues = [itemId, quantity];
+        let images = [];
+        if (req.files && req.files.length > 0) {
+            images = req.files.map(file => file.path.replace(/\\/g, "/"));
+        }
 
-        connection.execute(stockSql, stockValues, (err, result) => {
-            if (err) {
-                console.log(err);
-                return res.status(500).json({ error: 'Error inserting item', details: err });
-            }
+        const updatedData = {
+            description,
+            cost_price,
+            sell_price
+        };
 
-            return res.status(201).json({
-                success: true,
-                itemId: result.insertId,
-                image: imagePath,
-                quantity,
-                result
-            });
+        if (images.length > 0) {
+            updatedData.img_path = images[0];
+        }
+
+        await item.update(updatedData, { transaction: t });
+
+        const stock = await Stock.findOne({ where: { item_id: id }, transaction: t });
+        if (stock) {
+            await stock.update({ quantity: quantity ? parseInt(quantity) : 0 }, { transaction: t });
+        } else {
+            await Stock.create({ item_id: id, quantity: quantity ? parseInt(quantity) : 0 }, { transaction: t });
+        }
+
+        if (images.length > 0) {
+            await ItemImage.destroy({ where: { item_id: id }, transaction: t });
+            const imageRecords = images.map(path => ({
+                item_id: id,
+                img_path: path
+            }));
+            await ItemImage.bulkCreate(imageRecords, { transaction: t });
+        }
+
+        await t.commit();
+        return res.status(201).json({ success: true });
+    } catch (error) {
+        await t.rollback();
+        console.error(error);
+        return res.status(500).json({ error: 'Failed to update item', details: error.message });
+    }
+};
+
+exports.deleteItem = async (req, res) => {
+    try {
+        const id = req.params.id;
+        const item = await Item.findByPk(id);
+        if (!item) {
+            return res.status(404).json({ error: 'Item not found' });
+        }
+        await item.destroy();
+        return res.status(201).json({ success: true, message: 'item deleted' });
+    } catch (error) {
+        console.error(error);
+        return res.status(500).json({ error: 'Failed to delete item', details: error.message });
+    }
+};
+
+exports.searchItems = async (req, res) => {
+    try {
+        const query = req.query.q || '';
+        const list = await Item.findAll({
+            where: {
+                description: {
+                    [Op.like]: `%${query}%`
+                }
+            },
+            limit: 10
         });
-    });
-}
-
-exports.updateItem = (req, res, next) => {
-
-    console.log(req.file)
-    // const item = req.body
-    // const image = req.file
-    const id = req.params.id
-
-    const { description, cost_price, sell_price, quantity } = req.body;
-    if (req.file) {
-        imagePath = req.file.path.replace(/\\/g, "/");
+        return res.status(200).json({ items: list });
+    } catch (error) {
+        console.error(error);
+        return res.status(500).json({ error: 'Search failed' });
     }
-
-    if (!description || !cost_price || !sell_price) {
-        return res.status(400).json({ error: 'Missing required fields' });
-    }
-
-    const sql = 'UPDATE item SET description = ?, cost_price = ?, sell_price = ?, img_path = ? WHERE item_id = ?';
-    const values = [description, cost_price, sell_price, imagePath, id];
-
-    connection.execute(sql, values, (err, result) => {
-        if (err) {
-            console.log(err);
-            return res.status(500).json({ error: 'Error inserting item', details: err });
-        }
-    });
-
-    const stockSql = 'UPDATE stock SET quantity = ? WHERE item_id = ?';
-    const stockValues = [quantity, id];
-
-    connection.execute(stockSql, stockValues, (err, result) => {
-        if (err) {
-            console.log(err);
-            return res.status(500).json({ error: 'Error updating item', details: err });
-        }
-
-    });
-
-    return res.status(201).json({
-        success: true,
-    });
-}
-
-exports.deleteItem = (req, res,) => {
-
-    const id = req.params.id
-    const sql = 'DELETE FROM item WHERE item_id = ?';
-    const values = [id];
-
-    connection.execute(sql, values, (err, result) => {
-        if (err) {
-            console.log(err);
-            return res.status(500).json({ error: 'Error deleting item', details: err });
-        }
-    });
-
-    return res.status(201).json({
-        success: true,
-        message: 'item deleted'
-    });
-}
+};

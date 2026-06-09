@@ -1,129 +1,216 @@
-const connection = require('../config/database');
-const sendEmail = require('../utils/sendEmail')
+const { Orderinfo, Orderline, Customer, User, Item, Stock, Transaction, sequelize } = require('../models');
+const sendEmail = require('../utils/sendEmail');
 
-exports.createOrder = (req, res, next) => {
-    // [
-    //     "cart": [
-    //         {
-    //             "item_id": 70,
-    //             "quantity": 2
-    //         },
-    //         {
-    //             "item_id": 71,
-    //             "quantity": 5
-    //         },
-    //         {
-    //             "item_id": 72,
-    //             "quantity": 1
-    //         }
-    //     ]
-    // ]
-    // console.log(req.body,)
-    const { cart, user } = req.body;
-    console.log(cart, user)
+exports.createOrder = async (req, res, next) => {
+    const t = await sequelize.transaction();
+    try {
+        const { cart, user } = req.body;
 
-    const dateOrdered = new Date();
-    const dateShipped = new Date();
-
-    connection.beginTransaction(err => {
-        if (err) {
-            console.log(err);
-            return res.status(500).json({ error: 'Transaction error', details: err });
+        if (!cart || !Array.isArray(cart) || cart.length === 0) {
+            await t.rollback();
+            return res.status(400).json({ error: 'Cart is empty' });
         }
 
-        // Get customer_id from userId
-        // const sql = 'SELECT customer_id FROM customer WHERE user_id = ?';
-        const sql = 'SELECT c.customer_id, u.email FROM customer c INNER JOIN users u ON u.id = c.user_id WHERE u.id = ?';
-        connection.execute(sql, [parseInt(user.id)], (err, results) => {
-            if (err || results.length === 0) {
-                return connection.rollback(() => {
-                    if (!res.headersSent) {
-                        res.status(500).json({ error: 'Customer not found', details: err });
-                    }
-                });
+        if (!user || !user.id) {
+            await t.rollback();
+            return res.status(400).json({ error: 'User details missing' });
+        }
+
+        // Get Customer profile and associated User email
+        const customer = await Customer.findOne({
+            where: { user_id: parseInt(user.id) },
+            include: [{ model: User, as: 'user' }],
+            transaction: t
+        });
+
+        if (!customer) {
+            await t.rollback();
+            return res.status(404).json({ error: 'Customer profile not found' });
+        }
+
+        const customerId = customer.customer_id;
+        const email = customer.user ? customer.user.email : null;
+
+        const dateOrdered = new Date();
+        const dateShipped = new Date(); // matching legacy dateShipped logic
+        const shippingFee = 100.00; // matching legacy flat shipping rate
+
+        // Calculate total amount & verify stocks
+        let orderTotal = 0;
+        
+        for (const item of cart) {
+            const dbItem = await Item.findByPk(item.item_id, {
+                include: [{ model: Stock, as: 'stock' }],
+                transaction: t
+            });
+
+            if (!dbItem) {
+                await t.rollback();
+                return res.status(404).json({ error: `Item with ID ${item.item_id} not found` });
             }
 
-            // const customer_id = results[0].customer_id;
-            const { customer_id, email } = results[0]
+            // Check if stock is sufficient
+            if (!dbItem.stock || dbItem.stock.quantity < item.quantity) {
+                await t.rollback();
+                return res.status(400).json({ error: `Insufficient stock for figurine: ${dbItem.description}` });
+            }
 
-            // Insert into orderinfo
-            const orderInfoSql = 'INSERT INTO orderinfo (customer_id, date_placed, date_shipped, shipping) VALUES (?, ?, ?, ?)';
-            connection.execute(orderInfoSql, [customer_id, dateOrdered, dateShipped, 100], (err, result) => {
-                if (err) {
-                    return connection.rollback(() => {
-                        if (!res.headersSent) {
-                            res.status(500).json({ error: 'Error inserting orderinfo', details: err });
-                        }
-                    });
-                }
+            orderTotal += parseFloat(dbItem.sell_price) * item.quantity;
+        }
 
-                const order_id = result.insertId;
+        // 1. Create orderinfo header
+        const order = await Orderinfo.create({
+            customer_id: customerId,
+            date_placed: dateOrdered,
+            date_shipped: dateShipped,
+            shipping: shippingFee
+        }, { transaction: t });
 
-                // Insert each cart item into orderline
-                const orderLineSql = 'INSERT INTO orderline (orderinfo_id, item_id, quantity) VALUES (?, ?, ?)';
-                let errorOccurred = false;
-                let completed = 0;
+        const orderId = order.orderinfo_id;
 
-                if (cart.length === 0) {
-                    return connection.rollback(() => {
-                        if (!res.headersSent) {
-                            res.status(400).json({ error: 'Cart is empty' });
-                        }
-                    });
-                }
+        // 2. Create order lines and decrement stock
+        for (const item of cart) {
+            await Orderline.create({
+                orderinfo_id: orderId,
+                item_id: item.item_id,
+                quantity: item.quantity
+            }, { transaction: t });
 
-                cart.forEach((item, idx) => {
-                    connection.execute(orderLineSql, [order_id, item.item_id, item.quantity], (err) => {
-                        if (err && !errorOccurred) {
-                            errorOccurred = true;
-                            return connection.rollback(() => {
-                                if (!res.headersSent) {
-                                    res.status(500).json({ error: 'Error inserting orderline', details: err });
-                                }
-                            });
-                        }
-
-
-                        completed++;
-
-                        if (completed === cart.length && !errorOccurred) {
-                            connection.commit(async err => {
-                                if (err) {
-                                    return connection.rollback(() => {
-                                        if (!res.headersSent) {
-                                            res.status(500).json({ error: 'Commit error', details: err });
-                                        }
-                                    });
-                                }
-
-                                const message = 'your order is being processed'
-                                try {
-                                    await sendEmail({
-                                        email,
-                                        subject: 'Order Success',
-                                        message
-                                    })
-                                }
-                                catch (emailErr) {
-
-                                    console.log('Email error:', emailErr);
-                                }
-
-                                if (!res.headersSent) {
-                                    res.status(201).json({
-                                        success: true,
-                                        order_id,
-                                        dateOrdered,
-                                        message: 'transaction complete',
-
-                                        cart
-                                    });
-                                }
-                            });
-                        }
-                    });
-                });
+            // Decrement Stock
+            const stock = await Stock.findOne({
+                where: { item_id: item.item_id },
+                transaction: t
             });
+            await stock.update({
+                quantity: stock.quantity - item.quantity
+            }, { transaction: t });
+        }
+
+        // 3. Create payment Transaction record (LM Term Test requirement)
+        const totalWithShipping = orderTotal + shippingFee;
+        const newTransaction = await Transaction.create({
+            orderinfo_id: orderId,
+            amount: totalWithShipping,
+            payment_method: 'Cash on Delivery',
+            status: 'Pending',
+            transaction_date: dateOrdered
+        }, { transaction: t });
+
+        await t.commit();
+
+        // 4. Send success email
+        if (email) {
+            try {
+                await sendEmail({
+                    email,
+                    subject: 'Order Success — Little Mono',
+                    message: `Hi ${customer.fname || 'Collector'}, your figurine order #${orderId} has been successfully placed! Your transaction #${newTransaction.transaction_id} is pending verification.`
+                });
+            } catch (emailErr) {
+                console.error('Email notification failed:', emailErr);
+            }
+        }
+
+        return res.status(201).json({
+            success: true,
+            order_id: orderId,
+            dateOrdered,
+            message: 'transaction complete',
+            cart
         });
-    });
-}
+    } catch (error) {
+        await t.rollback();
+        console.error(error);
+        return res.status(500).json({ error: 'Failed to place order: ' + error.message });
+    }
+};
+
+exports.getMyOrders = async (req, res) => {
+    try {
+        const userId = req.user.id;
+
+        // 1. Find the customer profile
+        const customer = await Customer.findOne({
+            where: { user_id: userId }
+        });
+
+        if (!customer) {
+            return res.status(404).json({ error: 'Customer profile not found' });
+        }
+
+        // 2. Fetch all orders for this customer, including their transactions and line items
+        const orders = await Orderinfo.findAll({
+            where: { customer_id: customer.customer_id },
+            include: [
+                {
+                    model: Transaction,
+                    as: 'transaction'
+                },
+                {
+                    model: Orderline,
+                    as: 'lines',
+                    include: [{ model: Item, as: 'item' }]
+                }
+            ],
+            order: [['date_placed', 'DESC']]
+        });
+
+        // 3. Calculate statistics
+        const totalOrders = orders.length;
+        let totalSpent = 0;
+        orders.forEach(order => {
+            if (order.transaction) {
+                totalSpent += parseFloat(order.transaction.amount || 0);
+            }
+        });
+
+        // Calculate dynamic loyalty points (e.g., 50 base points + 1 point per $10 spent)
+        const loyaltyPoints = 50 + Math.round(totalSpent * 0.1);
+
+        // Determine collection rank
+        let collectionRank = 'Novice';
+        if (totalOrders >= 8) {
+            collectionRank = 'Master Collector';
+        } else if (totalOrders >= 4) {
+            collectionRank = 'Collector';
+        } else if (totalOrders >= 1) {
+            collectionRank = 'Apprentice';
+        }
+
+        // Map order list for client presentation
+        const orderList = orders.map(order => {
+            const tx = order.transaction || {};
+            const lines = order.lines || [];
+            
+            return {
+                order_id: order.orderinfo_id,
+                date_placed: order.date_placed,
+                shipping: order.shipping,
+                amount: tx.amount || 0,
+                payment_method: tx.payment_method || 'N/A',
+                status: tx.status || 'Pending',
+                items: lines.map(l => ({
+                    item_id: l.item_id,
+                    description: l.item ? l.item.description : 'Unknown Toy',
+                    quantity: l.quantity,
+                    price: l.item ? l.item.sell_price : 0,
+                    img_path: l.item ? l.item.img_path : null
+                }))
+            };
+        });
+
+        return res.status(200).json({
+            success: true,
+            stats: {
+                totalOrders,
+                totalSpent,
+                loyaltyPoints,
+                collectionRank
+            },
+            orders: orderList
+        });
+    } catch (error) {
+        console.error(error);
+        return res.status(500).json({ error: 'Failed to retrieve orders summary: ' + error.message });
+    }
+};
