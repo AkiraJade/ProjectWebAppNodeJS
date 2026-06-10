@@ -8,6 +8,8 @@ const users = require('./routes/user');
 const orders = require('./routes/order');
 const dashboard = require('./routes/dashboard');
 const transactions = require('./routes/transaction');
+const reviews = require('./routes/review');
+const wishlists = require('./routes/wishlist');
 
 // app.get('/', (req, res) => {
 //     res.send('Hello from nodejs!')
@@ -23,5 +25,7 @@ app.use('/api/v1', users);
 app.use('/api/v1', orders);
 app.use('/api/v1', dashboard);
 app.use('/api/v1', transactions);
+app.use('/api/v1', reviews);
+app.use('/api/v1', wishlists);
 
 module.exports = app

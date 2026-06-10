@@ -135,3 +135,26 @@ INSERT INTO customer (customer_id, user_id, fname, lname, phone, dob) VALUES
 (2, 2, 'Default', 'Admin', '987-654-3210', '1990-01-01')
 ON DUPLICATE KEY UPDATE fname=VALUES(fname);
 
+-- 8. Reviews Table
+CREATE TABLE IF NOT EXISTS reviews (
+    review_id INT AUTO_INCREMENT PRIMARY KEY,
+    user_id INT NOT NULL,
+    item_id INT NOT NULL,
+    rating INT NOT NULL,
+    comment TEXT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+    FOREIGN KEY (item_id) REFERENCES item(item_id) ON DELETE CASCADE
+);
+
+-- 9. Wishlists Table
+CREATE TABLE IF NOT EXISTS wishlists (
+    wishlist_id INT AUTO_INCREMENT PRIMARY KEY,
+    user_id INT NOT NULL,
+    item_id INT NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+    FOREIGN KEY (item_id) REFERENCES item(item_id) ON DELETE CASCADE,
+    UNIQUE KEY unique_wishlist (user_id, item_id)
+);
+

@@ -20,6 +20,7 @@ const Wishlist = sequelize.define('wishlists', {
         defaultValue: DataTypes.NOW
     }
 }, {
+    timestamps: false,
     indexes: [
         {
             unique: true,
