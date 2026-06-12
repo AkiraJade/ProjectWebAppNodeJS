@@ -4,7 +4,7 @@ const sendEmail = require('../utils/sendEmail');
 exports.createOrder = async (req, res, next) => {
     const t = await sequelize.transaction();
     try {
-        const { cart, user } = req.body;
+        const { cart, user, payment_method } = req.body;
 
         if (!cart || !Array.isArray(cart) || cart.length === 0) {
             await t.rollback();
@@ -27,6 +27,15 @@ exports.createOrder = async (req, res, next) => {
             await t.rollback();
             return res.status(404).json({ error: 'Customer profile not found' });
         }
+
+        // Update customer profile with latest checkout details if provided
+        const { fname, lname, phone, shipping_address } = req.body;
+        await customer.update({
+            fname: fname || customer.fname,
+            lname: lname || customer.lname,
+            phone: phone || customer.phone,
+            addressline: shipping_address || customer.addressline
+        }, { transaction: t });
 
         const customerId = customer.customer_id;
         const email = customer.user ? customer.user.email : null;
@@ -91,7 +100,7 @@ exports.createOrder = async (req, res, next) => {
         const newTransaction = await Transaction.create({
             orderinfo_id: orderId,
             amount: totalWithShipping,
-            payment_method: 'Cash on Delivery',
+            payment_method: payment_method || 'Cash on Delivery',
             status: 'Pending',
             transaction_date: dateOrdered
         }, { transaction: t });

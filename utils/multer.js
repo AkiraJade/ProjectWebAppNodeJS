@@ -7,12 +7,12 @@ const storage = multer.diskStorage({
         cb(null, 'images');
     },
     filename: function (req, file, cb) {
-
         const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
         const ext = path.extname(file.originalname).toLowerCase();
-        let baseName = path.parse(file.originalname).name.replace(/\\/g, '/');
+        let baseName = path.parse(file.originalname).name
+            .replace(/[^\w\s.-]/g, '_')
+            .replace(/\s+/g, '_');
         cb(null, baseName + '-' + uniqueSuffix + ext);
-        // cb(null, path.parse(file.originalname).name + '-' + uniqueSuffix + ext);
     }
 });
 

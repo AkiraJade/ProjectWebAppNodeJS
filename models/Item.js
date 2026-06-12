@@ -22,6 +22,21 @@ const Item = sequelize.define('item', {
     img_path: {
         type: DataTypes.STRING(255),
         allowNull: true
+    },
+    deleted_at: {
+        type: DataTypes.DATE,
+        allowNull: true,
+        defaultValue: null
+    },
+    category: {
+        type: DataTypes.STRING(255),
+        allowNull: true,
+        defaultValue: null
+    },
+    tags: {
+        type: DataTypes.STRING(255),
+        allowNull: true,
+        defaultValue: null
     }
 });
 

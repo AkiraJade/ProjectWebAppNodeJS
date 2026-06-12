@@ -47,7 +47,8 @@ CREATE TABLE IF NOT EXISTS item (
     description TEXT NOT NULL,
     cost_price DECIMAL(10, 2) NOT NULL,
     sell_price DECIMAL(10, 2) NOT NULL,
-    img_path VARCHAR(255) NULL
+    img_path VARCHAR(255) NULL,
+    deleted_at DATETIME NULL DEFAULT NULL
 );
 
 -- 4. Stock Table

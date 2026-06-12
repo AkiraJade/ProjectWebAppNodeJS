@@ -119,6 +119,7 @@ const loginUser = async (req, res) => {
 const updateUser = async (req, res) => {
     try {
         const { fname, lname, addressline, zipcode, phone, userId } = req.body;
+        const targetUserId = req.user ? req.user.id : userId;
         let image = null;
 
         if (req.file) {
@@ -126,7 +127,7 @@ const updateUser = async (req, res) => {
         }
 
         const [customer, created] = await Customer.findOrCreate({
-            where: { user_id: userId },
+            where: { user_id: targetUserId },
             defaults: { fname, lname, addressline, zipcode, phone, image_path: image }
         });
 
@@ -138,7 +139,7 @@ const updateUser = async (req, res) => {
 
         // Sync name changes to user table as well
         if (fname && lname) {
-            const user = await User.findByPk(userId);
+            const user = await User.findByPk(targetUserId);
             if (user) {
                 await user.update({ name: `${fname} ${lname}` });
             }
@@ -188,6 +189,7 @@ const deactivateUser = async (req, res) => {
 const getAllUsers = async (req, res) => {
     try {
         const users = await User.findAll({
+            where: { deleted_at: null },
             include: [{ model: Customer, as: 'customer' }]
         });
         
@@ -197,7 +199,7 @@ const getAllUsers = async (req, res) => {
             name: u.name,
             email: u.email,
             role: u.role,
-            status: u.deleted_at ? 'Deactivated' : 'Active',
+            status: 'Active',
             phone: u.customer ? u.customer.phone : '',
             dob: u.customer ? u.customer.dob : '',
             image_path: u.customer ? u.customer.image_path : null
@@ -258,6 +260,62 @@ const toggleUserDeactivation = async (req, res) => {
     }
 };
 
+const getDeletedUsers = async (req, res) => {
+    try {
+        const { Op } = require('sequelize');
+        const users = await User.findAll({
+            where: { deleted_at: { [Op.ne]: null } },
+            include: [{ model: Customer, as: 'customer' }]
+        });
+        
+        const rows = users.map(u => ({
+            id: u.id,
+            name: u.name,
+            email: u.email,
+            phone: u.customer ? u.customer.phone : '',
+            dob: u.customer ? u.customer.dob : '',
+            status: 'Deactivated'
+        }));
+
+        return res.status(200).json({ rows });
+    } catch (error) {
+        console.error(error);
+        return res.status(500).json({ error: 'Failed to retrieve deleted users.' });
+    }
+};
+
+const getMe = async (req, res) => {
+    try {
+        const user = await User.findByPk(req.user.id, {
+            include: [{ model: Customer, as: 'customer' }]
+        });
+        if (!user) {
+            return res.status(404).json({ error: 'User not found' });
+        }
+        return res.status(200).json({
+            success: true,
+            user: {
+                id: user.id,
+                name: user.name,
+                email: user.email,
+                role: user.role,
+                customer: user.customer ? {
+                    fname: user.customer.fname,
+                    lname: user.customer.lname,
+                    addressline: user.customer.addressline,
+                    zipcode: user.customer.zipcode,
+                    phone: user.customer.phone,
+                    image_path: user.customer.image_path,
+                    dob: user.customer.dob
+                } : null
+            }
+        });
+    } catch (error) {
+        console.error(error);
+        return res.status(500).json({ error: 'Failed to retrieve profile: ' + error.message });
+    }
+};
+
 module.exports = {
     registerUser,
     loginUser,
@@ -265,5 +323,7 @@ module.exports = {
     deactivateUser,
     getAllUsers,
     updateUserRole,
-    toggleUserDeactivation
+    toggleUserDeactivation,
+    getDeletedUsers,
+    getMe
 };
