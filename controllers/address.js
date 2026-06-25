@@ -16,11 +16,14 @@ exports.getMyAddresses = async (req, res) => {
 // 2. Add a new address
 exports.addAddress = async (req, res) => {
     try {
-        const { street_address, city, province, zip_code, country } = req.body;
+        const { street_address, city, province, zip_code, country, label } = req.body;
         
         if (!street_address || !city || !province || !zip_code || !country) {
             return res.status(400).json({ error: 'Missing required address fields.' });
         }
+
+        const existing = await Address.findOne({ where: { user_id: req.user.id } });
+        const isDefault = !existing; // first address is default
 
         const newAddress = await Address.create({
             user_id: req.user.id,
@@ -28,7 +31,9 @@ exports.addAddress = async (req, res) => {
             city,
             province,
             zip_code,
-            country
+            country,
+            label: label || 'Home',
+            is_default: isDefault
         });
 
         return res.status(201).json({ success: true, address: newAddress });
@@ -50,7 +55,17 @@ exports.deleteAddress = async (req, res) => {
             return res.status(404).json({ error: 'Address not found or unauthorized.' });
         }
 
+        const wasDefault = address.is_default;
         await address.destroy();
+
+        // If we deleted the default address, set another one as default
+        if (wasDefault) {
+            const nextAddress = await Address.findOne({ where: { user_id: req.user.id } });
+            if (nextAddress) {
+                await nextAddress.update({ is_default: true });
+            }
+        }
+
         return res.status(200).json({ success: true, message: 'Address deleted.' });
     } catch (error) {
         console.error(error);

@@ -5,7 +5,8 @@ const Customer = sequelize.define('customer', {
     customer_id: {
         type: DataTypes.INTEGER,
         primaryKey: true,
-        autoIncrement: true
+        autoIncrement: true,
+        field: 'id'
     },
     user_id: {
         type: DataTypes.INTEGER,
@@ -14,19 +15,13 @@ const Customer = sequelize.define('customer', {
     },
     fname: {
         type: DataTypes.STRING(255),
-        allowNull: true
+        allowNull: true,
+        field: 'first_name'
     },
     lname: {
         type: DataTypes.STRING(255),
-        allowNull: true
-    },
-    addressline: {
-        type: DataTypes.STRING(255),
-        allowNull: true
-    },
-    zipcode: {
-        type: DataTypes.STRING(50),
-        allowNull: true
+        allowNull: true,
+        field: 'last_name'
     },
     phone: {
         type: DataTypes.STRING(50),
@@ -34,12 +29,16 @@ const Customer = sequelize.define('customer', {
     },
     image_path: {
         type: DataTypes.STRING(255),
-        allowNull: true
+        allowNull: true,
+        field: 'profile_image_path'
     },
     dob: {
         type: DataTypes.DATEONLY,
         allowNull: true
     }
+}, {
+    tableName: 'customer',
+    timestamps: false
 });
 
 module.exports = Customer;

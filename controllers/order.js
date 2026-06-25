@@ -1,5 +1,13 @@
-const { Orderinfo, Orderline, Customer, User, Item, Stock, Transaction, sequelize } = require('../models');
+const { Orderinfo, Orderline, Customer, User, Item, Address, Transaction, sequelize } = require('../models');
 const sendEmail = require('../utils/sendEmail');
+
+function mapPaymentMethod(method) {
+    const m = String(method).toLowerCase();
+    if (m.includes('gcash')) return 'gcash';
+    if (m.includes('card') || m.includes('credit') || m.includes('debit') || m.includes('paypal')) return 'card';
+    if (m.includes('bank') || m.includes('transfer')) return 'bank_transfer';
+    return 'cod';
+}
 
 exports.createOrder = async (req, res, next) => {
     const t = await sequelize.transaction();
@@ -33,33 +41,59 @@ exports.createOrder = async (req, res, next) => {
         await customer.update({
             fname: fname || customer.fname,
             lname: lname || customer.lname,
-            phone: phone || customer.phone,
-            addressline: shipping_address || customer.addressline
+            phone: phone || customer.phone
         }, { transaction: t });
 
-        const customerId = customer.customer_id;
-        const email = customer.user ? customer.user.email : null;
+        // Resolve Address
+        let address = null;
+        if (req.body.address_id) {
+            address = await Address.findByPk(req.body.address_id, { transaction: t });
+        }
 
-        const dateOrdered = new Date();
-        const dateShipped = new Date(); // matching legacy dateShipped logic
-        const shippingFee = 100.00; // matching legacy flat shipping rate
-
-        // Calculate total amount & verify stocks
-        let orderTotal = 0;
-        
-        for (const item of cart) {
-            const dbItem = await Item.findByPk(item.item_id, {
-                include: [{ model: Stock, as: 'stock' }],
+        if (!address) {
+            address = await Address.findOne({
+                where: { user_id: parseInt(user.id), is_default: true },
                 transaction: t
             });
+
+            if (!address) {
+                address = await Address.findOne({
+                    where: { user_id: parseInt(user.id) },
+                    transaction: t
+                });
+            }
+
+            if (!address && shipping_address) {
+                address = await Address.create({
+                    user_id: parseInt(user.id),
+                    label: 'Checkout Address',
+                    street_address: shipping_address,
+                    city: req.body.city || 'Manila',
+                    province: req.body.province || 'Metro Manila',
+                    zip_code: req.body.zip_code || '1000',
+                    country: req.body.country || 'Philippines',
+                    is_default: true
+                }, { transaction: t });
+            }
+        }
+
+        const shippingStreet = address ? address.street_address : (shipping_address || '123 Main St');
+        const shippingCity = address ? address.city : (req.body.city || 'Manila');
+        const shippingProvince = address ? address.province : (req.body.province || 'Metro Manila');
+        const shippingZip = address ? address.zip_code : (req.body.zip_code || '1000');
+        const shippingFee = 100.00; // Flat shipping rate
+
+        // Verify stocks and calculate total
+        let orderTotal = 0;
+        for (const item of cart) {
+            const dbItem = await Item.findByPk(item.item_id, { transaction: t });
 
             if (!dbItem) {
                 await t.rollback();
                 return res.status(404).json({ error: `Item with ID ${item.item_id} not found` });
             }
 
-            // Check if stock is sufficient
-            if (!dbItem.stock || dbItem.stock.quantity < item.quantity) {
+            if (dbItem.quantity < item.quantity) {
                 await t.rollback();
                 return res.status(400).json({ error: `Insufficient stock for figurine: ${dbItem.description}` });
             }
@@ -67,11 +101,15 @@ exports.createOrder = async (req, res, next) => {
             orderTotal += parseFloat(dbItem.sell_price) * item.quantity;
         }
 
-        // 1. Create orderinfo header
+        // 1. Create orderinfo header (referencing user_id and address_id)
         const order = await Orderinfo.create({
-            customer_id: customerId,
-            date_placed: dateOrdered,
-            date_shipped: dateShipped,
+            user_id: parseInt(user.id),
+            address_id: address ? address.address_id : 1,
+            status_id: 1, // Pending
+            shipping_street: shippingStreet,
+            shipping_city: shippingCity,
+            shipping_province: shippingProvince,
+            shipping_zip: shippingZip,
             shipping: shippingFee
         }, { transaction: t });
 
@@ -79,34 +117,33 @@ exports.createOrder = async (req, res, next) => {
 
         // 2. Create order lines and decrement stock
         for (const item of cart) {
+            const dbItem = await Item.findByPk(item.item_id, { transaction: t });
+            
             await Orderline.create({
                 orderinfo_id: orderId,
                 item_id: item.item_id,
-                quantity: item.quantity
+                quantity: item.quantity,
+                sell_price: dbItem.sell_price
             }, { transaction: t });
 
-            // Decrement Stock
-            const stock = await Stock.findOne({
-                where: { item_id: item.item_id },
-                transaction: t
-            });
-            await stock.update({
-                quantity: stock.quantity - item.quantity
+            // Decrement Stock directly on Item
+            await dbItem.update({
+                quantity: dbItem.quantity - item.quantity
             }, { transaction: t });
         }
 
-        // 3. Create payment Transaction record (LM Term Test requirement)
-        const totalWithShipping = orderTotal + shippingFee;
+        // 3. Create payment transaction record (maps to payments table)
+        const dbPaymentMethod = mapPaymentMethod(payment_method);
         const newTransaction = await Transaction.create({
             orderinfo_id: orderId,
-            amount: totalWithShipping,
-            payment_method: payment_method || 'Cash on Delivery',
-            status: 'Pending',
-            transaction_date: dateOrdered
+            payment_method: dbPaymentMethod,
+            status: 'pending',
+            transaction_date: new Date()
         }, { transaction: t });
 
         await t.commit();
 
+        const email = customer.user ? customer.user.email : null;
         // 4. Send success email
         if (email) {
             try {
@@ -123,7 +160,7 @@ exports.createOrder = async (req, res, next) => {
         return res.status(201).json({
             success: true,
             order_id: orderId,
-            dateOrdered,
+            dateOrdered: order.date_placed,
             message: 'transaction complete',
             cart
         });
@@ -147,9 +184,9 @@ exports.getMyOrders = async (req, res) => {
             return res.status(404).json({ error: 'Customer profile not found' });
         }
 
-        // 2. Fetch all orders for this customer, including their transactions and line items
+        // 2. Fetch all orders for this user, including transactions and line items
         const orders = await Orderinfo.findAll({
-            where: { customer_id: customer.customer_id },
+            where: { user_id: userId },
             include: [
                 {
                     model: Transaction,
@@ -167,16 +204,20 @@ exports.getMyOrders = async (req, res) => {
         // 3. Calculate statistics
         const totalOrders = orders.length;
         let totalSpent = 0;
+        
         orders.forEach(order => {
-            if (order.transaction) {
-                totalSpent += parseFloat(order.transaction.amount || 0);
+            const tx = order.transaction || {};
+            const lines = order.lines || [];
+            const linesSum = lines.reduce((sum, line) => sum + (parseFloat(line.sell_price) * line.quantity), 0);
+            const orderAmount = linesSum + parseFloat(order.shipping || 0);
+
+            if (tx.status === 'paid' || tx.status === 'completed') {
+                totalSpent += orderAmount;
             }
         });
 
-        // Calculate dynamic loyalty points (e.g., 50 base points + 1 point per $10 spent)
         const loyaltyPoints = 50 + Math.round(totalSpent * 0.1);
 
-        // Determine collection rank
         let collectionRank = 'Novice';
         if (totalOrders >= 8) {
             collectionRank = 'Master Collector';
@@ -190,19 +231,21 @@ exports.getMyOrders = async (req, res) => {
         const orderList = orders.map(order => {
             const tx = order.transaction || {};
             const lines = order.lines || [];
+            const linesSum = lines.reduce((sum, line) => sum + (parseFloat(line.sell_price) * line.quantity), 0);
+            const orderAmount = linesSum + parseFloat(order.shipping || 0);
             
             return {
                 order_id: order.orderinfo_id,
                 date_placed: order.date_placed,
                 shipping: order.shipping,
-                amount: tx.amount || 0,
+                amount: orderAmount.toFixed(2),
                 payment_method: tx.payment_method || 'N/A',
                 status: tx.status || 'Pending',
                 items: lines.map(l => ({
                     item_id: l.item_id,
                     description: l.item ? l.item.description : 'Unknown Toy',
                     quantity: l.quantity,
-                    price: l.item ? l.item.sell_price : 0,
+                    price: l.sell_price,
                     img_path: l.item ? l.item.img_path : null
                 }))
             };

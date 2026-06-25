@@ -6,11 +6,13 @@ const {
     getAllTransactions,
     getSingleTransaction,
     updateTransactionStatus,
-    deleteTransaction
+    deleteTransaction,
+    exportTransactionsCSV
 } = require('../controllers/transaction');
 
 // Protected transaction management (Admin-only)
 router.get('/transactions', isAuthenticatedUser, authorizeRoles('admin'), getAllTransactions);
+router.get('/transactions/export', isAuthenticatedUser, authorizeRoles('admin'), exportTransactionsCSV);
 router.get('/transactions/:id', isAuthenticatedUser, authorizeRoles('admin'), getSingleTransaction);
 router.put('/transactions/:id', isAuthenticatedUser, authorizeRoles('admin'), updateTransactionStatus);
 router.delete('/transactions/:id', isAuthenticatedUser, authorizeRoles('admin'), deleteTransaction);

@@ -40,23 +40,57 @@ const registerUser = async (req, res) => {
             dob
         }, { transaction: t });
 
-        // Save optional shipping addresses if provided
-        if (addresses && Array.isArray(addresses) && addresses.length > 0) {
-            const addressRecords = addresses
-                .filter(addr => addr.streetAddress && addr.streetAddress.trim() !== '')
-                .map(addr => ({
-                    user_id: userId,
-                    street_address: addr.streetAddress,
-                    city: addr.city,
-                    province: addr.province,
-                    zip_code: addr.zipCode,
-                    country: addr.country
-                }));
-
-            if (addressRecords.length > 0) {
-                await Address.bulkCreate(addressRecords, { transaction: t });
-            }
+        // Save default address from registration parameters if provided
+        const addressRecords = [];
+        
+        // If a single addressline/zipcode were passed as direct properties
+        const { addressline, zipcode } = req.body;
+        if (addressline) {
+            addressRecords.push({
+                user_id: userId,
+                label: 'Home',
+                street_address: addressline,
+                city: 'Manila',
+                province: 'Metro Manila',
+                zip_code: zipcode || '1000',
+                country: 'Philippines',
+                is_default: true
+            });
         }
+
+        // If addresses array was provided
+        if (addresses && Array.isArray(addresses) && addresses.length > 0) {
+            addresses
+                .filter(addr => addr.streetAddress && addr.streetAddress.trim() !== '')
+                .forEach((addr, idx) => {
+                    addressRecords.push({
+                        user_id: userId,
+                        label: addr.label || (idx === 0 ? 'Home' : `Address ${idx + 1}`),
+                        street_address: addr.streetAddress,
+                        city: addr.city || 'Manila',
+                        province: addr.province || 'Metro Manila',
+                        zip_code: addr.zipCode || '1000',
+                        country: addr.country || 'Philippines',
+                        is_default: idx === 0 && addressRecords.length === 0
+                    });
+                });
+        }
+
+        // Default address fallback to satisfy FK in orderinfo
+        if (addressRecords.length === 0) {
+            addressRecords.push({
+                user_id: userId,
+                label: 'Home',
+                street_address: '123 Main St.',
+                city: 'Manila',
+                province: 'Metro Manila',
+                zip_code: '1000',
+                country: 'Philippines',
+                is_default: true
+            });
+        }
+
+        await Address.bulkCreate(addressRecords, { transaction: t });
 
         await t.commit();
         return res.status(200).json({
@@ -80,7 +114,8 @@ const loginUser = async (req, res) => {
         }
 
         const user = await User.findOne({
-            where: { email, deleted_at: null }
+            where: { email, deleted_at: null },
+            include: [{ model: Customer, as: 'customer' }]
         });
 
         if (!user) {
@@ -117,6 +152,7 @@ const loginUser = async (req, res) => {
 
 // 3. User Self Profile Update
 const updateUser = async (req, res) => {
+    const t = await sequelize.transaction();
     try {
         const { fname, lname, addressline, zipcode, phone, userId } = req.body;
         const targetUserId = req.user ? req.user.id : userId;
@@ -128,28 +164,56 @@ const updateUser = async (req, res) => {
 
         const [customer, created] = await Customer.findOrCreate({
             where: { user_id: targetUserId },
-            defaults: { fname, lname, addressline, zipcode, phone, image_path: image }
+            defaults: { fname, lname, phone, image_path: image },
+            transaction: t
         });
 
         if (!created) {
-            const updateFields = { fname, lname, addressline, zipcode, phone };
+            const updateFields = { fname, lname, phone };
             if (image) updateFields.image_path = image;
-            await customer.update(updateFields);
+            await customer.update(updateFields, { transaction: t });
+        }
+
+        // Update default address in customer_addresses
+        if (addressline || zipcode) {
+            const [addressRecord, addrCreated] = await Address.findOrCreate({
+                where: { user_id: targetUserId, is_default: true },
+                defaults: {
+                    user_id: targetUserId,
+                    label: 'Home',
+                    street_address: addressline || '123 Main St.',
+                    city: 'Manila',
+                    province: 'Metro Manila',
+                    zip_code: zipcode || '1000',
+                    country: 'Philippines',
+                    is_default: true
+                },
+                transaction: t
+            });
+
+            if (!addrCreated) {
+                await addressRecord.update({
+                    street_address: addressline || addressRecord.street_address,
+                    zip_code: zipcode || addressRecord.zip_code
+                }, { transaction: t });
+            }
         }
 
         // Sync name changes to user table as well
         if (fname && lname) {
-            const user = await User.findByPk(targetUserId);
+            const user = await User.findByPk(targetUserId, { transaction: t });
             if (user) {
-                await user.update({ name: `${fname} ${lname}` });
+                await user.update({ name: `${fname} ${lname}` }, { transaction: t });
             }
         }
 
+        await t.commit();
         return res.status(200).json({
             success: true,
             message: 'profile updated'
         });
     } catch (error) {
+        await t.rollback();
         console.error(error);
         return res.status(500).json({ error: 'Failed to update profile: ' + error.message });
     }
@@ -287,11 +351,17 @@ const getDeletedUsers = async (req, res) => {
 const getMe = async (req, res) => {
     try {
         const user = await User.findByPk(req.user.id, {
-            include: [{ model: Customer, as: 'customer' }]
+            include: [
+                { model: Customer, as: 'customer' },
+                { model: Address, as: 'addresses' }
+            ]
         });
         if (!user) {
             return res.status(404).json({ error: 'User not found' });
         }
+
+        const defaultAddr = user.addresses ? (user.addresses.find(a => a.is_default) || user.addresses[0]) : null;
+
         return res.status(200).json({
             success: true,
             user: {
@@ -302,8 +372,8 @@ const getMe = async (req, res) => {
                 customer: user.customer ? {
                     fname: user.customer.fname,
                     lname: user.customer.lname,
-                    addressline: user.customer.addressline,
-                    zipcode: user.customer.zipcode,
+                    addressline: defaultAddr ? defaultAddr.street_address : '',
+                    zipcode: defaultAddr ? defaultAddr.zip_code : '',
                     phone: user.customer.phone,
                     image_path: user.customer.image_path,
                     dob: user.customer.dob
@@ -316,6 +386,134 @@ const getMe = async (req, res) => {
     }
 };
 
+const forgotPassword = async (req, res) => {
+    try {
+        const { email } = req.body;
+        if (!email) {
+            return res.status(400).json({ error: 'Please enter your email address.' });
+        }
+
+        const user = await User.findOne({ where: { email, deleted_at: null } });
+        if (!user) {
+            return res.status(404).json({ error: 'No account associated with this email.' });
+        }
+
+        // Generate a 6-digit numeric reset token
+        const resetToken = Math.floor(100000 + Math.random() * 900000).toString();
+        
+        // Save to token column
+        await user.update({ token: resetToken });
+
+        // Import sendEmail
+        const sendEmail = require('../utils/sendEmail');
+        const resetUrl = `http://localhost/ProjectWebAppJs/reset-password.html?email=${encodeURIComponent(email)}&token=${resetToken}`;
+        
+        const message = `
+            <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #c5a880; border-radius: 12px; background-color: #faf9f6;">
+                <h2 style="color: #1c1c1c; font-family: 'Outfit', sans-serif;">Password Reset Request</h2>
+                <p style="color: #766e65; font-size: 16px;">You are receiving this email because you (or someone else) requested a password reset for your Little Mono account.</p>
+                <p style="color: #766e65; font-size: 16px;">Please click the button below to complete the process:</p>
+                <div style="text-align: center; margin: 30px 0;">
+                    <a href="${resetUrl}" style="background-color: #1c1c1c; color: #faf9f6; text-decoration: none; padding: 12px 30px; border-radius: 50px; font-weight: bold; font-size: 16px; display: inline-block;">Reset Password</a>
+                </div>
+                <p style="color: #766e65; font-size: 14px;">Alternatively, you can copy and paste the following link into your browser:</p>
+                <p style="word-break: break-all; color: #a68b63; font-size: 14px;">${resetUrl}</p>
+                <hr style="border: none; border-top: 1px solid rgba(197,168,128,0.15); margin: 20px 0;">
+                <p style="color: #766e65; font-size: 12px;">If you did not request this reset, please ignore this email and your password will remain unchanged.</p>
+            </div>
+        `;
+
+        await sendEmail({
+            email: user.email,
+            subject: 'Little Mono - Password Reset Request',
+            message
+        });
+
+        return res.status(200).json({
+            success: true,
+            message: 'A password reset link has been sent to your email address.'
+        });
+
+    } catch (error) {
+        console.error(error);
+        return res.status(500).json({ error: 'Failed to send password reset email: ' + error.message });
+    }
+};
+
+const resetPassword = async (req, res) => {
+    try {
+        const { email, token, password } = req.body;
+
+        if (!email || !token || !password) {
+            return res.status(400).json({ error: 'Please provide email, token, and new password.' });
+        }
+
+        const user = await User.findOne({ where: { email, token, deleted_at: null } });
+        if (!user) {
+            return res.status(400).json({ error: 'Invalid or expired password reset link.' });
+        }
+
+        // Hash new password
+        const hashedPassword = await bcrypt.hash(password, 10);
+
+        // Update password and clear token
+        await user.update({
+            password: hashedPassword,
+            token: null
+        });
+
+        return res.status(200).json({
+            success: true,
+            message: 'Your password has been successfully reset. You can now log in.'
+        });
+
+    } catch (error) {
+        console.error(error);
+        return res.status(500).json({ error: 'Failed to reset password: ' + error.message });
+    }
+};
+
+const changePassword = async (req, res) => {
+    try {
+        const { currentPassword, newPassword } = req.body;
+
+        if (!currentPassword || !newPassword) {
+            return res.status(400).json({ error: 'Please enter both current and new passwords.' });
+        }
+
+        if (newPassword.length < 6) {
+            return res.status(400).json({ error: 'New password must be at least 6 characters long.' });
+        }
+
+        const user = await User.findByPk(req.user.id);
+        if (!user) {
+            return res.status(404).json({ error: 'User not found.' });
+        }
+
+        const isMatch = await bcrypt.compare(currentPassword, user.password);
+        if (!isMatch) {
+            return res.status(400).json({ error: 'Current password is incorrect.' });
+        }
+
+        // Hash new password
+        const hashedPassword = await bcrypt.hash(newPassword, 10);
+
+        // Update password
+        await user.update({
+            password: hashedPassword
+        });
+
+        return res.status(200).json({
+            success: true,
+            message: 'Your password has been changed successfully.'
+        });
+
+    } catch (error) {
+        console.error(error);
+        return res.status(500).json({ error: 'Failed to change password: ' + error.message });
+    }
+};
+
 module.exports = {
     registerUser,
     loginUser,
@@ -325,5 +523,8 @@ module.exports = {
     updateUserRole,
     toggleUserDeactivation,
     getDeletedUsers,
-    getMe
+    getMe,
+    forgotPassword,
+    resetPassword,
+    changePassword
 };

@@ -14,9 +14,13 @@ exports.getAllTransactions = async (req, res) => {
                     as: 'order',
                     include: [
                         {
-                            model: Customer,
-                            as: 'customer',
-                            include: [{ model: User, as: 'user' }]
+                            model: User,
+                            as: 'user',
+                            include: [{ model: Customer, as: 'customer' }]
+                        },
+                        {
+                            model: Orderline,
+                            as: 'lines'
                         }
                     ]
                 }
@@ -26,13 +30,17 @@ exports.getAllTransactions = async (req, res) => {
 
         const rows = list.map(tx => {
             const order = tx.order || {};
-            const customer = order.customer || {};
-            const user = customer.user || {};
+            const user = order.user || {};
+            const customer = user.customer || {};
+            const lines = order.lines || [];
+            
+            const linesSum = lines.reduce((sum, line) => sum + (parseFloat(line.sell_price) * line.quantity), 0);
+            const amount = linesSum + parseFloat(order.shipping || 0);
 
             return {
                 transaction_id: tx.transaction_id,
                 orderinfo_id: tx.orderinfo_id,
-                amount: tx.amount,
+                amount: amount.toFixed(2),
                 payment_method: tx.payment_method,
                 status: tx.status,
                 transaction_date: tx.transaction_date,
@@ -58,9 +66,9 @@ exports.getSingleTransaction = async (req, res) => {
                     as: 'order',
                     include: [
                         {
-                            model: Customer,
-                            as: 'customer',
-                            include: [{ model: User, as: 'user' }]
+                            model: User,
+                            as: 'user',
+                            include: [{ model: Customer, as: 'customer' }]
                         },
                         {
                             model: Orderline,
@@ -76,7 +84,23 @@ exports.getSingleTransaction = async (req, res) => {
             return res.status(404).json({ success: false, error: 'Transaction not found.' });
         }
 
-        return res.status(200).json({ success: true, transaction: tx });
+        // Calculate dynamic amount for response compatibility
+        const order = tx.order || {};
+        const lines = order.lines || [];
+        const linesSum = lines.reduce((sum, line) => sum + (parseFloat(line.sell_price) * line.quantity), 0);
+        const amount = linesSum + parseFloat(order.shipping || 0);
+        
+        // Expose virtual amount
+        const txData = tx.toJSON();
+        txData.amount = amount.toFixed(2);
+
+        // Keep compatibility with frontend that expects transaction.order.customer
+        if (txData.order && txData.order.user && txData.order.user.customer) {
+            txData.order.customer = txData.order.user.customer;
+            txData.order.customer.user = { email: txData.order.user.email, name: txData.order.user.name };
+        }
+
+        return res.status(200).json({ success: true, transaction: txData });
     } catch (error) {
         console.error(error);
         return res.status(500).json({ error: 'Failed to fetch transaction details.' });
@@ -100,9 +124,9 @@ exports.updateTransactionStatus = async (req, res) => {
                     as: 'order',
                     include: [
                         {
-                            model: Customer,
-                            as: 'customer',
-                            include: [{ model: User, as: 'user' }]
+                            model: User,
+                            as: 'user',
+                            include: [{ model: Customer, as: 'customer' }]
                         },
                         {
                             model: Orderline,
@@ -124,9 +148,10 @@ exports.updateTransactionStatus = async (req, res) => {
         // Retrieve relationships for receipt generation
         const order = transaction.order;
         if (order) {
-            const customer = order.customer;
+            const user = order.user || {};
+            const customer = user.customer;
             const lines = order.lines || [];
-            const email = customer && customer.user ? customer.user.email : null;
+            const email = user.email;
 
             if (email) {
                 // Compile invoice path
@@ -134,8 +159,12 @@ exports.updateTransactionStatus = async (req, res) => {
                 const receiptPath = path.join(receiptsDir, `invoice-${transaction.transaction_id}.pdf`);
 
                 try {
+                    // Adapt customer object properties to keep PDF creator working
+                    const pdfCustomer = customer ? customer.toJSON() : {};
+                    pdfCustomer.user = { email: user.email };
+                    
                     // Generate PDF Receipt (Term Test 10pts requirement)
-                    await generateReceiptPDF(order, transaction, customer, lines, receiptPath);
+                    await generateReceiptPDF(order, transaction, pdfCustomer, lines, receiptPath);
 
                     // Send email with attached receipt (Term Test 5pts + 10pts requirement)
                     await sendEmail({
@@ -175,5 +204,62 @@ exports.deleteTransaction = async (req, res) => {
     } catch (error) {
         console.error(error);
         return res.status(500).json({ error: 'Failed to delete transaction.' });
+    }
+};
+
+exports.exportTransactionsCSV = async (req, res) => {
+    try {
+        const list = await Transaction.findAll({
+            include: [
+                {
+                    model: Orderinfo,
+                    as: 'order',
+                    include: [
+                        {
+                            model: User,
+                            as: 'user',
+                            include: [{ model: Customer, as: 'customer' }]
+                        },
+                        {
+                            model: Orderline,
+                            as: 'lines'
+                        }
+                    ]
+                }
+            ],
+            order: [['transaction_date', 'DESC']]
+        });
+
+        // Generate CSV header
+        let csvContent = "Transaction ID,Order ID,Customer Name,Customer Email,Amount,Payment Method,Status,Transaction Date\n";
+        
+        list.forEach(tx => {
+            const order = tx.order || {};
+            const user = order.user || {};
+            const customer = user.customer || {};
+            const lines = order.lines || [];
+            
+            const linesSum = lines.reduce((sum, line) => sum + (parseFloat(line.sell_price) * line.quantity), 0);
+            const amount = linesSum + parseFloat(order.shipping || 0);
+
+            const customerName = `${customer.fname || ''} ${customer.lname || ''}`.trim() || user.name || 'Anonymous';
+            const customerEmail = user.email || 'N/A';
+            const date = new Date(tx.transaction_date).toISOString().replace(/T/, ' ').replace(/\..+/, '');
+            
+            // Escape values containing commas or quotes
+            const cleanName = `"${customerName.replace(/"/g, '""')}"`;
+            const cleanEmail = `"${customerEmail.replace(/"/g, '""')}"`;
+            const cleanMethod = `"${tx.payment_method.replace(/"/g, '""')}"`;
+            const cleanStatus = `"${tx.status.replace(/"/g, '""')}"`;
+            
+            csvContent += `${tx.transaction_id},${tx.orderinfo_id},${cleanName},${cleanEmail},${amount.toFixed(2)},${cleanMethod},${cleanStatus},${date}\n`;
+        });
+
+        res.setHeader('Content-Type', 'text/csv');
+        res.setHeader('Content-Disposition', 'attachment; filename="transactions_summary.csv"');
+        return res.status(200).send(csvContent);
+    } catch (error) {
+        console.error(error);
+        return res.status(500).json({ error: 'Failed to export CSV: ' + error.message });
     }
 };

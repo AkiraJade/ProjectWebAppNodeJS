@@ -1,4 +1,4 @@
-const { Item, Stock, ItemImage, sequelize } = require('../models');
+const { Item, ItemImage, Category, Tag, sequelize } = require('../models');
 const { Op } = require('sequelize');
 
 exports.getAllItems = async (req, res) => {
@@ -6,22 +6,29 @@ exports.getAllItems = async (req, res) => {
         const items = await Item.findAll({
             where: { deleted_at: null },
             include: [
-                { model: Stock, as: 'stock' },
-                { model: ItemImage, as: 'images' }
+                { model: ItemImage, as: 'images' },
+                { model: Category, as: 'category' },
+                { model: Tag, as: 'tags' }
             ]
         });
         
-        const rows = items.map(item => ({
-            item_id: item.item_id,
-            description: item.description,
-            cost_price: item.cost_price,
-            sell_price: item.sell_price,
-            img_path: item.img_path,
-            quantity: item.stock ? item.stock.quantity : 0,
-            images: item.images ? item.images.map(img => img.img_path) : [],
-            category: item.category ? item.category.split(',').map(c => c.trim()) : [],
-            tags: item.tags ? item.tags.split(',').map(t => t.trim()) : []
-        }));
+        const rows = items.map(item => {
+            const primaryImage = item.images && item.images.find(img => img.is_primary);
+            const fallbackImage = item.images && item.images.length > 0 ? item.images[0] : null;
+            const mainImagePath = primaryImage ? primaryImage.img_path : (fallbackImage ? fallbackImage.img_path : null);
+
+            return {
+                item_id: item.item_id,
+                description: item.description,
+                cost_price: item.cost_price,
+                sell_price: item.sell_price,
+                img_path: mainImagePath,
+                quantity: item.quantity,
+                images: item.images ? item.images.map(img => img.img_path) : [],
+                category: item.category ? [item.category.name] : [],
+                tags: item.tags ? item.tags.map(t => t.name) : []
+            };
+        });
         
         return res.status(200).json({ rows });
     } catch (error) {
@@ -34,8 +41,9 @@ exports.getSingleItem = async (req, res) => {
     try {
         const item = await Item.findByPk(req.params.id, {
             include: [
-                { model: Stock, as: 'stock' },
-                { model: ItemImage, as: 'images' }
+                { model: ItemImage, as: 'images' },
+                { model: Category, as: 'category' },
+                { model: Tag, as: 'tags' }
             ]
         });
 
@@ -43,16 +51,20 @@ exports.getSingleItem = async (req, res) => {
             return res.status(404).json({ success: false, error: 'Item not found' });
         }
 
+        const primaryImage = item.images && item.images.find(img => img.is_primary);
+        const fallbackImage = item.images && item.images.length > 0 ? item.images[0] : null;
+        const mainImagePath = primaryImage ? primaryImage.img_path : (fallbackImage ? fallbackImage.img_path : null);
+
         const result = [{
             item_id: item.item_id,
             description: item.description,
             cost_price: item.cost_price,
             sell_price: item.sell_price,
-            img_path: item.img_path,
-            quantity: item.stock ? item.stock.quantity : 0,
+            img_path: mainImagePath,
+            quantity: item.quantity,
             images: item.images ? item.images.map(img => img.img_path) : [],
-            category: item.category ? item.category.split(',').map(c => c.trim()) : [],
-            tags: item.tags ? item.tags.split(',').map(t => t.trim()) : []
+            category: item.category ? [item.category.name] : [],
+            tags: item.tags ? item.tags.map(t => t.name) : []
         }];
 
         return res.status(200).json({ success: true, result });
@@ -72,40 +84,51 @@ exports.createItem = async (req, res) => {
             return res.status(400).json({ error: 'Missing required fields' });
         }
 
-        let categoryStr = null;
+        // 1. Resolve Category
+        let categoryId = 1; // Fallback to 'blind box'
         if (category) {
-            if (Array.isArray(category)) {
-                categoryStr = category.map(c => c.trim().toLowerCase()).filter(Boolean).join(',');
-            } else {
+            let catName = '';
+            if (Array.isArray(category) && category.length > 0) {
+                catName = category[0];
+            } else if (typeof category === 'string') {
+                catName = category.split(',')[0].trim();
+            }
+            if (catName) {
+                const [catInstance] = await Category.findOrCreate({
+                    where: { name: catName.toLowerCase().trim() },
+                    defaults: { description: `${catName} category` },
+                    transaction: t
+                });
+                categoryId = catInstance.id;
+            }
+        }
+
+        // 2. Resolve Tags
+        let tagNames = [];
+        if (tags) {
+            if (Array.isArray(tags)) {
+                tagNames = tags.map(t => t.trim().toLowerCase()).filter(Boolean);
+            } else if (typeof tags === 'string') {
                 try {
-                    const parsed = JSON.parse(category);
+                    const parsed = JSON.parse(tags);
                     if (Array.isArray(parsed)) {
-                        categoryStr = parsed.map(c => c.trim().toLowerCase()).filter(Boolean).join(',');
+                        tagNames = parsed.map(t => t.trim().toLowerCase()).filter(Boolean);
                     } else {
-                        categoryStr = String(category).split(',').map(c => c.trim().toLowerCase()).filter(Boolean).join(',');
+                        tagNames = tags.split(',').map(t => t.trim().toLowerCase()).filter(Boolean);
                     }
                 } catch (e) {
-                    categoryStr = String(category).split(',').map(c => c.trim().toLowerCase()).filter(Boolean).join(',');
+                    tagNames = tags.split(',').map(t => t.trim().toLowerCase()).filter(Boolean);
                 }
             }
         }
 
-        let tagsStr = null;
-        if (tags) {
-            if (Array.isArray(tags)) {
-                tagsStr = tags.map(t => t.trim().toLowerCase()).filter(Boolean).join(',');
-            } else {
-                try {
-                    const parsed = JSON.parse(tags);
-                    if (Array.isArray(parsed)) {
-                        tagsStr = parsed.map(t => t.trim().toLowerCase()).filter(Boolean).join(',');
-                    } else {
-                        tagsStr = String(tags).split(',').map(t => t.trim().toLowerCase()).filter(Boolean).join(',');
-                    }
-                } catch (e) {
-                    tagsStr = String(tags).split(',').map(t => t.trim().toLowerCase()).filter(Boolean).join(',');
-                }
-            }
+        const tagInstances = [];
+        for (const name of tagNames) {
+            const [tagInst] = await Tag.findOrCreate({
+                where: { name },
+                transaction: t
+            });
+            tagInstances.push(tagInst);
         }
 
         let images = [];
@@ -115,26 +138,30 @@ exports.createItem = async (req, res) => {
 
         const defaultHeroPath = images.length > 0 ? images[0] : null;
 
+        // 3. Create Item
         const newItem = await Item.create({
+            brand_id: 1, // Default to 'Pop Mart'
+            category_id: categoryId,
             description,
             cost_price,
             sell_price,
-            img_path: defaultHeroPath,
-            category: categoryStr,
-            tags: tagsStr
+            quantity: quantity ? parseInt(quantity) : 0
         }, { transaction: t });
 
         const itemId = newItem.item_id;
 
-        await Stock.create({
-            item_id: itemId,
-            quantity: quantity ? parseInt(quantity) : 0
-        }, { transaction: t });
+        // 4. Associate Tags
+        if (tagInstances.length > 0) {
+            await newItem.setTags(tagInstances, { transaction: t });
+        }
 
+        // 5. Create Images
         if (images.length > 0) {
-            const imageRecords = images.map(path => ({
+            const imageRecords = images.map((path, idx) => ({
                 item_id: itemId,
-                img_path: path
+                img_path: path,
+                is_primary: idx === 0,
+                sort_order: idx
             }));
             await ItemImage.bulkCreate(imageRecords, { transaction: t });
         }
@@ -172,9 +199,8 @@ exports.updateItem = async (req, res) => {
         }
 
         // 1. Gather all existing unique image paths for validation
-        const existingHero = item.img_path;
         const existingSecondary = await ItemImage.findAll({ where: { item_id: id }, transaction: t });
-        const allExisting = [existingHero, ...existingSecondary.map(img => img.img_path)].filter(Boolean);
+        const allExisting = existingSecondary.map(img => img.img_path).filter(Boolean);
         const uniqueExisting = [...new Set(allExisting)];
 
         // 2. Parse keep_images from request body
@@ -190,11 +216,9 @@ exports.updateItem = async (req, res) => {
                 }
             }
         } else {
-            // Default: if keep_images parameter is missing, keep all existing images to maintain backwards compatibility
             keepImages = uniqueExisting;
         }
 
-        // Keep only images that actually belonged to the item (prevent injection)
         keepImages = keepImages.filter(path => uniqueExisting.includes(path));
 
         // 3. Process new files
@@ -206,67 +230,74 @@ exports.updateItem = async (req, res) => {
         // 4. Combine kept images and new images
         const combinedImages = [...keepImages, ...newImages];
 
-        let categoryStr = null;
+        // 5. Resolve Category
+        let categoryId = item.category_id;
         if (category) {
-            if (Array.isArray(category)) {
-                categoryStr = category.map(c => c.trim().toLowerCase()).filter(Boolean).join(',');
-            } else {
+            let catName = '';
+            if (Array.isArray(category) && category.length > 0) {
+                catName = category[0];
+            } else if (typeof category === 'string') {
+                catName = category.split(',')[0].trim();
+            }
+            if (catName) {
+                const [catInstance] = await Category.findOrCreate({
+                    where: { name: catName.toLowerCase().trim() },
+                    defaults: { description: `${catName} category` },
+                    transaction: t
+                });
+                categoryId = catInstance.id;
+            }
+        }
+
+        // 6. Resolve Tags
+        let tagNames = [];
+        if (tags) {
+            if (Array.isArray(tags)) {
+                tagNames = tags.map(t => t.trim().toLowerCase()).filter(Boolean);
+            } else if (typeof tags === 'string') {
                 try {
-                    const parsed = JSON.parse(category);
+                    const parsed = JSON.parse(tags);
                     if (Array.isArray(parsed)) {
-                        categoryStr = parsed.map(c => c.trim().toLowerCase()).filter(Boolean).join(',');
+                        tagNames = parsed.map(t => t.trim().toLowerCase()).filter(Boolean);
                     } else {
-                        categoryStr = String(category).split(',').map(c => c.trim().toLowerCase()).filter(Boolean).join(',');
+                        tagNames = tags.split(',').map(t => t.trim().toLowerCase()).filter(Boolean);
                     }
                 } catch (e) {
-                    categoryStr = String(category).split(',').map(c => c.trim().toLowerCase()).filter(Boolean).join(',');
+                    tagNames = tags.split(',').map(t => t.trim().toLowerCase()).filter(Boolean);
                 }
             }
         }
 
-        let tagsStr = null;
-        if (tags) {
-            if (Array.isArray(tags)) {
-                tagsStr = tags.map(t => t.trim().toLowerCase()).filter(Boolean).join(',');
-            } else {
-                try {
-                    const parsed = JSON.parse(tags);
-                    if (Array.isArray(parsed)) {
-                        tagsStr = parsed.map(t => t.trim().toLowerCase()).filter(Boolean).join(',');
-                    } else {
-                        tagsStr = String(tags).split(',').map(t => t.trim().toLowerCase()).filter(Boolean).join(',');
-                    }
-                } catch (e) {
-                    tagsStr = String(tags).split(',').map(t => t.trim().toLowerCase()).filter(Boolean).join(',');
-                }
-            }
+        const tagInstances = [];
+        for (const name of tagNames) {
+            const [tagInst] = await Tag.findOrCreate({
+                where: { name },
+                transaction: t
+            });
+            tagInstances.push(tagInst);
         }
 
         const updatedData = {
             description,
             cost_price,
             sell_price,
-            img_path: combinedImages.length > 0 ? combinedImages[0] : null,
-            category: categoryStr,
-            tags: tagsStr
+            category_id: categoryId,
+            quantity: quantity ? parseInt(quantity) : 0
         };
 
         await item.update(updatedData, { transaction: t });
 
-        // Update Stock
-        const stock = await Stock.findOne({ where: { item_id: id }, transaction: t });
-        if (stock) {
-            await stock.update({ quantity: quantity ? parseInt(quantity) : 0 }, { transaction: t });
-        } else {
-            await Stock.create({ item_id: id, quantity: quantity ? parseInt(quantity) : 0 }, { transaction: t });
-        }
+        // Update tags
+        await item.setTags(tagInstances, { transaction: t });
 
         // Update Item Images table
         await ItemImage.destroy({ where: { item_id: id }, transaction: t });
         if (combinedImages.length > 0) {
-            const imageRecords = combinedImages.map(path => ({
+            const imageRecords = combinedImages.map((path, idx) => ({
                 item_id: id,
-                img_path: path
+                img_path: path,
+                is_primary: idx === 0,
+                sort_order: idx
             }));
             await ItemImage.bulkCreate(imageRecords, { transaction: t });
         }
@@ -313,10 +344,7 @@ exports.restoreItem = async (req, res) => {
 exports.getDeletedItems = async (req, res) => {
     try {
         const items = await Item.findAll({
-            where: { deleted_at: { [Op.ne]: null } },
-            include: [
-                { model: Stock, as: 'stock' }
-            ]
+            where: { deleted_at: { [Op.ne]: null } }
         });
         
         const rows = items.map(item => ({
@@ -325,7 +353,7 @@ exports.getDeletedItems = async (req, res) => {
             cost_price: item.cost_price,
             sell_price: item.sell_price,
             img_path: item.img_path,
-            quantity: item.stock ? item.stock.quantity : 0
+            quantity: item.quantity
         }));
         
         return res.status(200).json({ rows });

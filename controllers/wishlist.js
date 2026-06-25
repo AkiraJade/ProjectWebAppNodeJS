@@ -1,4 +1,4 @@
-const { Wishlist, Item, Stock } = require('../models');
+const { Wishlist, Item } = require('../models');
 
 exports.getMyWishlist = async (req, res) => {
     try {
@@ -7,8 +7,7 @@ exports.getMyWishlist = async (req, res) => {
             include: [
                 {
                     model: Item,
-                    as: 'item',
-                    include: [{ model: Stock, as: 'stock' }]
+                    as: 'item'
                 }
             ]
         });
@@ -18,8 +17,8 @@ exports.getMyWishlist = async (req, res) => {
             description: w.item.description,
             sell_price: w.item.sell_price,
             img_path: w.item.img_path,
-            quantity: w.item.stock ? w.item.stock.quantity : 0,
-            wishlist_id: w.wishlist_id
+            quantity: w.item.quantity,
+            wishlist_id: `${w.user_id}_${w.item_id}`
         }));
 
         return res.status(200).json({ success: true, items });

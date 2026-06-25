@@ -8,8 +8,16 @@ const User = sequelize.define('users', {
         autoIncrement: true
     },
     name: {
-        type: DataTypes.STRING(255),
-        allowNull: false
+        type: DataTypes.VIRTUAL,
+        get() {
+            if (this.customer) {
+                return `${this.customer.fname} ${this.customer.lname}`.trim();
+            }
+            return '';
+        },
+        set(value) {
+            // No-op to prevent crashes during writes
+        }
     },
     email: {
         type: DataTypes.STRING(255),
@@ -18,10 +26,11 @@ const User = sequelize.define('users', {
     },
     password: {
         type: DataTypes.STRING(255),
-        allowNull: false
+        allowNull: false,
+        field: 'password_hash'
     },
     role: {
-        type: DataTypes.STRING(50),
+        type: DataTypes.ENUM('admin', 'customer'),
         defaultValue: 'customer'
     },
     token: {
@@ -37,6 +46,9 @@ const User = sequelize.define('users', {
         type: DataTypes.DATE,
         defaultValue: DataTypes.NOW
     }
+}, {
+    tableName: 'users',
+    timestamps: false
 });
 
 module.exports = User;

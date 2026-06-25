@@ -21,30 +21,30 @@ exports.canReview = async (req, res) => {
     try {
         const itemId = req.params.id;
 
-        // Find customer record for the logged-in user
-        const customer = await Customer.findOne({ where: { user_id: req.user.id } });
-
-        let canReview = false;
-        if (customer) {
-            // Check if user has a completed/shipped/paid order containing this item
-            const orders = await Orderinfo.findAll({
-                where: { customer_id: customer.customer_id },
-                include: [
-                    {
-                        model: Orderline,
-                        as: 'lines',
-                        where: { item_id: itemId }
-                    },
-                    {
-                        model: Transaction,
-                        as: 'transaction',
-                        where: { status: { [Op.in]: ['Completed', 'Shipped', 'Paid'] } }
-                    }
+        // Check if user has a completed/shipped/paid order containing this item
+        const orders = await Orderinfo.findAll({
+            where: { 
+                user_id: req.user.id,
+                [Op.or]: [
+                    { status_id: { [Op.in]: [3, 4] } }, // Shipped or Delivered
+                    { '$transaction.payment_status$': 'paid' } // Paid
                 ]
-            });
+            },
+            include: [
+                {
+                    model: Orderline,
+                    as: 'lines',
+                    where: { item_id: itemId }
+                },
+                {
+                    model: Transaction,
+                    as: 'transaction',
+                    required: true
+                }
+            ]
+        });
 
-            canReview = orders.length > 0;
-        }
+        const canReview = orders.length > 0;
 
         // Check if user has already reviewed this item
         const existingReview = await Review.findOne({
@@ -78,14 +78,14 @@ exports.createReview = async (req, res) => {
         }
 
         // Check if user has purchased this item (canReview logic)
-        const customer = await Customer.findOne({ where: { user_id: req.user.id } });
-
-        if (!customer) {
-            return res.status(403).json({ error: 'You must purchase this item before reviewing.' });
-        }
-
         const orders = await Orderinfo.findAll({
-            where: { customer_id: customer.customer_id },
+            where: { 
+                user_id: req.user.id,
+                [Op.or]: [
+                    { status_id: { [Op.in]: [3, 4] } }, // Shipped or Delivered
+                    { '$transaction.payment_status$': 'paid' } // Paid
+                ]
+            },
             include: [
                 {
                     model: Orderline,
@@ -95,7 +95,7 @@ exports.createReview = async (req, res) => {
                 {
                     model: Transaction,
                     as: 'transaction',
-                    where: { status: { [Op.in]: ['Completed', 'Shipped', 'Paid'] } }
+                    required: true
                 }
             ]
         });

@@ -2,9 +2,11 @@ const sequelize = require('../config/sequelize');
 const User = require('./User');
 const Customer = require('./Customer');
 const Address = require('./Address');
+const Brand = require('./Brand');
+const Category = require('./Category');
+const Tag = require('./Tag');
 const Item = require('./Item');
 const ItemImage = require('./ItemImage');
-const Stock = require('./Stock');
 const Orderinfo = require('./Orderinfo');
 const Orderline = require('./Orderline');
 const Transaction = require('./Transaction');
@@ -21,13 +23,21 @@ Customer.belongsTo(User, { foreignKey: 'user_id', as: 'user' });
 User.hasMany(Address, { foreignKey: 'user_id', as: 'addresses', onDelete: 'CASCADE' });
 Address.belongsTo(User, { foreignKey: 'user_id', as: 'user' });
 
-// Customer <-> Orderinfo (One-to-Many)
-Customer.hasMany(Orderinfo, { foreignKey: 'customer_id', as: 'orders', onDelete: 'CASCADE' });
-Orderinfo.belongsTo(Customer, { foreignKey: 'customer_id', as: 'customer' });
+// User <-> Orderinfo (One-to-Many)
+User.hasMany(Orderinfo, { foreignKey: 'user_id', as: 'orders', onDelete: 'RESTRICT' });
+Orderinfo.belongsTo(User, { foreignKey: 'user_id', as: 'user' });
 
-// Item <-> Stock (One-to-One)
-Item.hasOne(Stock, { foreignKey: 'item_id', as: 'stock', onDelete: 'CASCADE' });
-Stock.belongsTo(Item, { foreignKey: 'item_id', as: 'item' });
+// Item <-> Brand (Many-to-One)
+Brand.hasMany(Item, { foreignKey: 'brand_id', as: 'items', onDelete: 'RESTRICT' });
+Item.belongsTo(Brand, { foreignKey: 'brand_id', as: 'brand' });
+
+// Item <-> Category (Many-to-One)
+Category.hasMany(Item, { foreignKey: 'category_id', as: 'items', onDelete: 'RESTRICT' });
+Item.belongsTo(Category, { foreignKey: 'category_id', as: 'category' });
+
+// Item <-> Tag (Many-to-Many via item_tags pivot table)
+Item.belongsToMany(Tag, { through: 'item_tags', foreignKey: 'item_id', otherKey: 'tag_id', as: 'tags' });
+Tag.belongsToMany(Item, { through: 'item_tags', foreignKey: 'tag_id', otherKey: 'item_id', as: 'items' });
 
 // Item <-> ItemImage (One-to-Many)
 Item.hasMany(ItemImage, { foreignKey: 'item_id', as: 'images', onDelete: 'CASCADE' });
@@ -41,7 +51,7 @@ Orderline.belongsTo(Orderinfo, { foreignKey: 'orderinfo_id', as: 'order' });
 Orderline.belongsTo(Item, { foreignKey: 'item_id', as: 'item' });
 Item.hasMany(Orderline, { foreignKey: 'item_id', as: 'orderlines' });
 
-// Orderinfo <-> Transaction (One-to-One)
+// Orderinfo <-> Transaction (One-to-One, mapped to payments table)
 Orderinfo.hasOne(Transaction, { foreignKey: 'orderinfo_id', as: 'transaction', onDelete: 'CASCADE' });
 Transaction.belongsTo(Orderinfo, { foreignKey: 'orderinfo_id', as: 'order' });
 
@@ -66,9 +76,11 @@ module.exports = {
     User,
     Customer,
     Address,
+    Brand,
+    Category,
+    Tag,
     Item,
     ItemImage,
-    Stock,
     Orderinfo,
     Orderline,
     Transaction,

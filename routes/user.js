@@ -12,16 +12,22 @@ const {
     updateUserRole,
     toggleUserDeactivation,
     getDeletedUsers,
-    getMe
+    getMe,
+    forgotPassword,
+    resetPassword,
+    changePassword
 } = require('../controllers/user');
 
 // Public authentication routes
 router.post('/register', registerUser);
 router.post('/login', loginUser);
+router.post('/forgot-password', forgotPassword);
+router.post('/reset-password', resetPassword);
 
 // User profile updates
 router.get('/me', isAuthenticatedUser, getMe);
 router.post('/update-profile', isAuthenticatedUser, upload.single('image'), updateUser);
+router.post('/change-password', isAuthenticatedUser, changePassword);
 router.delete('/deactivate', deactivateUser);
 
 // Admin-only user management routes (MP6)

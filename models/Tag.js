@@ -1,21 +1,20 @@
 const { DataTypes } = require('sequelize');
 const sequelize = require('../config/sequelize');
 
-const Stock = sequelize.define('stock', {
-    stock_id: {
+const Tag = sequelize.define('tag', {
+    id: {
         type: DataTypes.INTEGER,
         primaryKey: true,
         autoIncrement: true
     },
-    item_id: {
-        type: DataTypes.INTEGER,
+    name: {
+        type: DataTypes.STRING(100),
         allowNull: false,
         unique: true
-    },
-    quantity: {
-        type: DataTypes.INTEGER,
-        defaultValue: 0
     }
+}, {
+    tableName: 'tag',
+    timestamps: false
 });
 
-module.exports = Stock;
+module.exports = Tag;
