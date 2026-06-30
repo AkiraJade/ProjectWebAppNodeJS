@@ -12,6 +12,7 @@ const Orderline = require('./Orderline');
 const Transaction = require('./Transaction');
 const Review = require('./Review');
 const Wishlist = require('./Wishlist');
+const CollectionLog = require('./CollectionLog');
 
 // Define Relationships
 
@@ -71,6 +72,14 @@ Wishlist.belongsTo(User, { foreignKey: 'user_id', as: 'user' });
 Item.hasMany(Wishlist, { foreignKey: 'item_id', as: 'wishlists', onDelete: 'CASCADE' });
 Wishlist.belongsTo(Item, { foreignKey: 'item_id', as: 'item' });
 
+// User <-> CollectionLog (One-to-Many)
+User.hasMany(CollectionLog, { foreignKey: 'user_id', as: 'collectionLogs', onDelete: 'CASCADE' });
+CollectionLog.belongsTo(User, { foreignKey: 'user_id', as: 'user' });
+
+// Item <-> CollectionLog (One-to-Many)
+Item.hasMany(CollectionLog, { foreignKey: 'item_id', as: 'collectionLogs', onDelete: 'CASCADE' });
+CollectionLog.belongsTo(Item, { foreignKey: 'item_id', as: 'item' });
+
 module.exports = {
     sequelize,
     User,
@@ -85,5 +94,6 @@ module.exports = {
     Orderline,
     Transaction,
     Review,
-    Wishlist
+    Wishlist,
+    CollectionLog
 };

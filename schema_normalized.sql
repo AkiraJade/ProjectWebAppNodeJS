@@ -100,16 +100,18 @@ CREATE TABLE tag (
 -- 7. Item Table (Stock quantity merged to remove 1:1 redundancy)
 -- ------------------------------------------------------------
 CREATE TABLE item (
-  id          INT            NOT NULL AUTO_INCREMENT,
-  brand_id    INT            NOT NULL,
-  category_id INT            NOT NULL,
-  name        VARCHAR(150)   NOT NULL,
-  description TEXT           NOT NULL,
-  cost_price  DECIMAL(10, 2) NOT NULL,
-  sell_price  DECIMAL(10, 2) NOT NULL,
-  quantity    INT            NOT NULL DEFAULT 0,
-  created_at  TIMESTAMP      NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  deleted_at  TIMESTAMP      NULL DEFAULT NULL,
+  id             INT            NOT NULL AUTO_INCREMENT,
+  brand_id       INT            NOT NULL,
+  category_id    INT            NOT NULL,
+  name           VARCHAR(150)   NOT NULL,
+  description    TEXT           NOT NULL,
+  cost_price     DECIMAL(10, 2) NOT NULL,
+  sell_price     DECIMAL(10, 2) NOT NULL,
+  quantity       INT            NOT NULL DEFAULT 0,
+  edition_type   VARCHAR(50)    NOT NULL DEFAULT 'Standard',
+  probability    VARCHAR(50)    NOT NULL DEFAULT '1/12',
+  created_at     TIMESTAMP      NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  deleted_at     TIMESTAMP      NULL DEFAULT NULL,
   PRIMARY KEY (id),
   CONSTRAINT fk_item_brand
     FOREIGN KEY (brand_id) REFERENCES brand (id)
@@ -261,6 +263,29 @@ CREATE TABLE wishlist (
 );
 
 -- ------------------------------------------------------------
+-- 15b. Collection Logs Table
+-- ------------------------------------------------------------
+CREATE TABLE collection_logs (
+  id                INT            NOT NULL AUTO_INCREMENT,
+  user_id           INT            NOT NULL,
+  item_id           INT            NOT NULL,
+  status            ENUM('owned', 'seeking', 'trading') NOT NULL DEFAULT 'owned',
+  purchase_date     DATE           NULL DEFAULT NULL,
+  seller            VARCHAR(255)   NULL DEFAULT NULL,
+  price             DECIMAL(10, 2) NULL DEFAULT NULL,
+  display_condition VARCHAR(100)   NULL DEFAULT NULL,
+  created_at        TIMESTAMP      NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  UNIQUE KEY uq_collection_user_item_status (user_id, item_id, status),
+  CONSTRAINT fk_collection_user
+    FOREIGN KEY (user_id) REFERENCES users (id)
+    ON DELETE CASCADE ON UPDATE CASCADE,
+  CONSTRAINT fk_collection_item
+    FOREIGN KEY (item_id) REFERENCES item (id)
+    ON DELETE CASCADE ON UPDATE CASCADE
+);
+
+-- ------------------------------------------------------------
 -- 16. Seed Initial Data
 -- ------------------------------------------------------------
 
@@ -306,18 +331,18 @@ INSERT INTO customer_addresses (id, user_id, label, street, city, province, zip_
 (1, 1, 'Home', '123 Main St., Brgy. Teachers Village', 'Manila', 'Metro Manila', '1000', TRUE),
 (2, 2, 'Office', '456 Admin Rd., BGC', 'Taguig City', 'Metro Manila', '1630', TRUE);
 
--- Seed Hirono items into item table (quantities included)
-INSERT INTO item (id, brand_id, category_id, name, description, cost_price, sell_price, quantity) VALUES
-(1, 1, 1, 'Hirono Hero Prince', 'Hirono Hero Prince (PrinceCenter) designer toy figurine.', 350.00, 599.00, 15),
-(2, 1, 1, 'Hirono Chibi Character', 'Hirono Chibi Character (model1) designer toy figurine.', 300.00, 499.00, 25),
-(3, 1, 1, 'Hirono Chibi Figure', 'Hirono Chibi Figure (model2) designer toy figurine.', 300.00, 499.00, 20),
-(4, 1, 1, 'Hirono Cute Hooded', 'Hirono Cute Hooded (model3) designer toy figurine.', 300.00, 499.00, 10),
-(5, 1, 1, 'Hirono Dinosaur Hoodie', 'Hirono Dinosaur Hoodie (model4) designer toy figurine.', 300.00, 499.00, 8),
-(6, 1, 1, 'Hirono Feathered Sheep', 'Hirono Feathered Sheep (model5) designer toy figurine.', 300.00, 499.00, 12),
-(7, 1, 1, 'Hirono Lantern Headed', 'Hirono Lantern Headed (model6) designer toy figurine.', 300.00, 499.00, 5),
-(8, 1, 1, 'Hirono Rose Hooded', 'Hirono Rose Hooded (model7) designer toy figurine.', 300.00, 499.00, 14),
-(9, 1, 1, 'Hirono Royal Prince', 'Hirono Royal Prince (model8) designer toy figurine.', 300.00, 499.00, 6),
-(10, 1, 1, 'Hirono Chibi Monk', 'Hirono Chibi Monk (model9) designer toy figurine.', 300.00, 499.00, 18);
+-- Seed Hirono items into item table (quantities, edition types, probabilities included)
+INSERT INTO item (id, brand_id, category_id, name, description, cost_price, sell_price, quantity, edition_type, probability) VALUES
+(1, 1, 1, 'Hirono Hero Prince', 'Hirono Hero Prince (PrinceCenter) designer toy figurine.', 350.00, 599.00, 15, 'Secret', '1/144 (0.69%)'),
+(2, 1, 1, 'Hirono Chibi Character', 'Hirono Chibi Character (model1) designer toy figurine.', 300.00, 499.00, 25, 'Standard', '1/12 (8.33%)'),
+(3, 1, 1, 'Hirono Chibi Figure', 'Hirono Chibi Figure (model2) designer toy figurine.', 300.00, 499.00, 20, 'Standard', '1/12 (8.33%)'),
+(4, 1, 1, 'Hirono Cute Hooded', 'Hirono Cute Hooded (model3) designer toy figurine.', 300.00, 499.00, 10, 'Standard', '1/12 (8.33%)'),
+(5, 1, 1, 'Hirono Dinosaur Hoodie', 'Hirono Dinosaur Hoodie (model4) designer toy figurine.', 300.00, 499.00, 8, 'Standard', '1/12 (8.33%)'),
+(6, 1, 1, 'Hirono Feathered Sheep', 'Hirono Feathered Sheep (model5) designer toy figurine.', 300.00, 499.00, 12, 'Standard', '1/12 (8.33%)'),
+(7, 1, 1, 'Hirono Lantern Headed', 'Hirono Lantern Headed (model6) designer toy figurine.', 300.00, 499.00, 5, 'Standard', '1/12 (8.33%)'),
+(8, 1, 1, 'Hirono Rose Hooded', 'Hirono Rose Hooded (model7) designer toy figurine.', 300.00, 499.00, 14, 'Standard', '1/12 (8.33%)'),
+(9, 1, 1, 'Hirono Royal Prince', 'Hirono Royal Prince (model8) designer toy figurine.', 300.00, 499.00, 6, 'Standard', '1/12 (8.33%)'),
+(10, 1, 1, 'Hirono Chibi Monk', 'Hirono Chibi Monk (model9) designer toy figurine.', 300.00, 499.00, 18, 'Standard', '1/12 (8.33%)');
 
 -- Seed item tags
 INSERT INTO item_tags (item_id, tag_id) VALUES

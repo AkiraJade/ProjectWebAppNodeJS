@@ -38,6 +38,16 @@ const Item = sequelize.define('item', {
         type: DataTypes.INTEGER,
         allowNull: false,
         defaultValue: 0
+    },
+    edition_type: {
+        type: DataTypes.STRING(50),
+        allowNull: false,
+        defaultValue: 'Standard'
+    },
+    probability: {
+        type: DataTypes.STRING(50),
+        allowNull: false,
+        defaultValue: '1/12'
     }
 }, {
     tableName: 'item',

@@ -11,6 +11,7 @@ const transactions = require('./routes/transaction');
 const reviews = require('./routes/review');
 const wishlists = require('./routes/wishlist');
 const addresses = require('./routes/address');
+const collection = require('./routes/collection');
 
 // app.get('/', (req, res) => {
 //     res.send('Hello from nodejs!')
@@ -38,5 +39,6 @@ app.use('/api/v1', transactions);
 app.use('/api/v1', reviews);
 app.use('/api/v1', wishlists);
 app.use('/api/v1', addresses);
+app.use('/api/v1', collection);
 
 module.exports = app
