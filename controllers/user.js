@@ -23,11 +23,16 @@ const registerUser = async (req, res) => {
         const hashedPassword = await bcrypt.hash(password, 10);
         const fullName = `${fname} ${lname}`;
 
+        // Generate a 6-digit numeric verification token
+        const verificationToken = Math.floor(100000 + Math.random() * 900000).toString();
+
         const newUser = await User.create({
             name: fullName,
             email,
             password: hashedPassword,
-            role: 'customer' // default role
+            role: 'customer',
+            token: verificationToken,
+            is_verified: false
         }, { transaction: t });
 
         const userId = newUser.id;
@@ -93,9 +98,35 @@ const registerUser = async (req, res) => {
         await Address.bulkCreate(addressRecords, { transaction: t });
 
         await t.commit();
+
+        // Send verification email
+        try {
+            const sendEmail = require('../utils/sendEmail');
+            const verifyUrl = `http://localhost/ProjectWebAppJs/verify.html?email=${encodeURIComponent(email)}&token=${verificationToken}`;
+            const message = `
+                <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #c5a880; border-radius: 12px; background-color: #faf9f6;">
+                    <h2 style="color: #1c1c1c; font-family: 'Outfit', sans-serif;">Welcome to Little Mono!</h2>
+                    <p style="color: #766e65; font-size: 16px;">Hi ${fname}, we're excited to have you join our collector community.</p>
+                    <p style="color: #766e65; font-size: 16px;">Please verify your email address to activate your account by clicking the button below:</p>
+                    <div style="text-align: center; margin: 30px 0;">
+                        <a href="${verifyUrl}" style="background-color: #1c1c1c; color: #faf9f6; text-decoration: none; padding: 12px 30px; border-radius: 50px; font-weight: bold; font-size: 16px; display: inline-block;">Verify Email</a>
+                    </div>
+                    <p style="color: #766e65; font-size: 14px;">Or copy and paste this link: <br> <span style="word-break: break-all; color: #a68b63;">${verifyUrl}</span></p>
+                </div>
+            `;
+            await sendEmail({
+                email,
+                subject: 'Welcome to Little Mono - Verify Your Email',
+                message
+            });
+        } catch (emailErr) {
+            console.error('Failed to send verification email:', emailErr);
+        }
+
         return res.status(200).json({
             success: true,
-            userId
+            userId,
+            message: 'Registration successful. Please check your email to verify your account.'
         });
     } catch (error) {
         await t.rollback();
@@ -120,6 +151,10 @@ const loginUser = async (req, res) => {
 
         if (!user) {
             return res.status(401).json({ success: false, message: 'Invalid email or password' });
+        }
+
+        if (!user.is_verified) {
+            return res.status(403).json({ success: false, message: 'Please verify your email address before logging in.' });
         }
 
         const isMatch = await bcrypt.compare(password, user.password);
@@ -236,6 +271,27 @@ const deactivateUser = async (req, res) => {
             deleted_at: new Date(),
             token: null // Clear active session token upon deactivation
         });
+
+        // Send deactivation confirmation email
+        try {
+            const sendEmail = require('../utils/sendEmail');
+            const message = `
+                <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #c5a880; border-radius: 12px; background-color: #faf9f6;">
+                    <h2 style="color: #1c1c1c; font-family: 'Outfit', sans-serif;">Account Deactivated</h2>
+                    <p style="color: #766e65; font-size: 16px;">Hello,</p>
+                    <p style="color: #766e65; font-size: 16px;">This email is to confirm that your Little Mono account has been successfully deactivated.</p>
+                    <p style="color: #766e65; font-size: 16px;">If this was a mistake or you wish to reactivate your account in the future, please contact our support team.</p>
+                    <p style="color: #766e65; font-size: 16px;">We hope to see you again soon!</p>
+                </div>
+            `;
+            await sendEmail({
+                email: user.email,
+                subject: 'Account Deactivation Confirmation - Little Mono',
+                message
+            });
+        } catch (emailErr) {
+            console.error('Failed to send deactivation email:', emailErr);
+        }
 
         return res.status(200).json({
             success: true,
@@ -473,6 +529,36 @@ const resetPassword = async (req, res) => {
     }
 };
 
+const verifyEmail = async (req, res) => {
+    try {
+        const { email, token } = req.body;
+
+        if (!email || !token) {
+            return res.status(400).json({ error: 'Email and token are required for verification.' });
+        }
+
+        const user = await User.findOne({ where: { email, token, deleted_at: null } });
+        
+        if (!user) {
+            return res.status(400).json({ error: 'Invalid or expired verification token.' });
+        }
+
+        await user.update({
+            is_verified: true,
+            token: null
+        });
+
+        return res.status(200).json({
+            success: true,
+            message: 'Your email has been successfully verified! You can now log in.'
+        });
+
+    } catch (error) {
+        console.error(error);
+        return res.status(500).json({ error: 'Failed to verify email: ' + error.message });
+    }
+};
+
 const changePassword = async (req, res) => {
     try {
         const { currentPassword, newPassword } = req.body;
@@ -503,6 +589,27 @@ const changePassword = async (req, res) => {
             password: hashedPassword
         });
 
+        // Send security alert email
+        try {
+            const sendEmail = require('../utils/sendEmail');
+            const message = `
+                <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #c5a880; border-radius: 12px; background-color: #faf9f6;">
+                    <h2 style="color: #1c1c1c; font-family: 'Outfit', sans-serif;">Security Alert: Password Changed</h2>
+                    <p style="color: #766e65; font-size: 16px;">Hello,</p>
+                    <p style="color: #766e65; font-size: 16px;">The password for your Little Mono account was recently changed.</p>
+                    <p style="color: #766e65; font-size: 16px;">If you made this change, you can safely ignore this email.</p>
+                    <p style="color: #d9534f; font-size: 16px; font-weight: bold;">If you did NOT request this change, please contact our support team immediately to secure your account.</p>
+                </div>
+            `;
+            await sendEmail({
+                email: user.email,
+                subject: 'Security Alert - Password Changed',
+                message
+            });
+        } catch (emailErr) {
+            console.error('Failed to send password change email:', emailErr);
+        }
+
         return res.status(200).json({
             success: true,
             message: 'Your password has been changed successfully.'
@@ -526,5 +633,6 @@ module.exports = {
     getMe,
     forgotPassword,
     resetPassword,
-    changePassword
+    changePassword,
+    verifyEmail
 };

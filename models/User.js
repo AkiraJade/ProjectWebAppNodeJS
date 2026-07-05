@@ -37,6 +37,11 @@ const User = sequelize.define('users', {
         type: DataTypes.TEXT,
         allowNull: true
     },
+    is_verified: {
+        type: DataTypes.BOOLEAN,
+        allowNull: false,
+        defaultValue: false
+    },
     deleted_at: {
         type: DataTypes.DATE,
         allowNull: true,

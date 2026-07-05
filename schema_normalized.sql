@@ -15,6 +15,7 @@ CREATE TABLE users (
   password_hash VARCHAR(255) NOT NULL,
   role          ENUM('admin', 'customer') NOT NULL DEFAULT 'customer',
   token         TEXT         NULL DEFAULT NULL,
+  is_verified   BOOLEAN      NOT NULL DEFAULT FALSE,
   created_at    TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
   deleted_at    TIMESTAMP    NULL DEFAULT NULL,
   PRIMARY KEY (id)
@@ -317,9 +318,9 @@ INSERT INTO order_statuses (id, status_name) VALUES
 (5, 'Cancelled');
 
 -- Seed users
-INSERT INTO users (id, email, password_hash, role) VALUES
-(1, 'user@littlemono.com', '$2b$10$rjuK2bhAABDJW4kaY81fP.mKxONwPy6UTEGage/sG8Hx8o1ixottm', 'customer'),
-(2, 'admin@littlemono.com', '$2b$10$Ll/NdL.xl8QWQtY/gRXzPemiZNAYrN6uvAWygdthFV119kfDZQYIy', 'admin');
+INSERT INTO users (id, email, password_hash, role, is_verified) VALUES
+(1, 'user@littlemono.com', '$2b$10$rjuK2bhAABDJW4kaY81fP.mKxONwPy6UTEGage/sG8Hx8o1ixottm', 'customer', TRUE),
+(2, 'admin@littlemono.com', '$2b$10$Ll/NdL.xl8QWQtY/gRXzPemiZNAYrN6uvAWygdthFV119kfDZQYIy', 'admin', TRUE);
 
 -- Seed customers
 INSERT INTO customer (id, user_id, first_name, last_name, phone, dob) VALUES

@@ -15,7 +15,8 @@ const {
     getMe,
     forgotPassword,
     resetPassword,
-    changePassword
+    changePassword,
+    verifyEmail
 } = require('../controllers/user');
 
 // Public authentication routes
@@ -23,6 +24,7 @@ router.post('/register', registerUser);
 router.post('/login', loginUser);
 router.post('/forgot-password', forgotPassword);
 router.post('/reset-password', resetPassword);
+router.post('/verify', verifyEmail);
 
 // User profile updates
 router.get('/me', isAuthenticatedUser, getMe);
