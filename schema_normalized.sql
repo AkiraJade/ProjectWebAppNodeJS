@@ -98,12 +98,27 @@ CREATE TABLE tag (
 );
 
 -- ------------------------------------------------------------
+-- 6b. Supplier Lookup Table
+-- ------------------------------------------------------------
+CREATE TABLE supplier (
+  id             INT          NOT NULL AUTO_INCREMENT,
+  name           VARCHAR(150) NOT NULL UNIQUE,
+  contact_person VARCHAR(100) NULL,
+  email          VARCHAR(150) NULL,
+  phone          VARCHAR(30)  NULL,
+  address        TEXT         NULL,
+  created_at     TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (id)
+);
+
+-- ------------------------------------------------------------
 -- 7. Item Table (Stock quantity merged to remove 1:1 redundancy)
 -- ------------------------------------------------------------
 CREATE TABLE item (
   id             INT            NOT NULL AUTO_INCREMENT,
   brand_id       INT            NOT NULL,
   category_id    INT            NOT NULL,
+  supplier_id    INT            NULL DEFAULT NULL,
   name           VARCHAR(150)   NOT NULL,
   description    TEXT           NOT NULL,
   cost_price     DECIMAL(10, 2) NOT NULL,
@@ -119,7 +134,10 @@ CREATE TABLE item (
     ON DELETE RESTRICT ON UPDATE CASCADE,
   CONSTRAINT fk_item_category
     FOREIGN KEY (category_id) REFERENCES category (id)
-    ON DELETE RESTRICT ON UPDATE CASCADE
+    ON DELETE RESTRICT ON UPDATE CASCADE,
+  CONSTRAINT fk_item_supplier
+    FOREIGN KEY (supplier_id) REFERENCES supplier (id)
+    ON DELETE SET NULL ON UPDATE CASCADE
 );
 
 -- ------------------------------------------------------------
@@ -333,17 +351,23 @@ INSERT INTO customer_addresses (id, user_id, label, street, city, province, zip_
 (2, 2, 'Office', '456 Admin Rd., BGC', 'Taguig City', 'Metro Manila', '1630', TRUE);
 
 -- Seed Hirono items into item table (quantities, edition types, probabilities included)
-INSERT INTO item (id, brand_id, category_id, name, description, cost_price, sell_price, quantity, edition_type, probability) VALUES
-(1, 1, 1, 'Hirono Hero Prince', 'Hirono Hero Prince (PrinceCenter) designer toy figurine.', 350.00, 599.00, 15, 'Secret', '1/144 (0.69%)'),
-(2, 1, 1, 'Hirono Chibi Character', 'Hirono Chibi Character (model1) designer toy figurine.', 300.00, 499.00, 25, 'Standard', '1/12 (8.33%)'),
-(3, 1, 1, 'Hirono Chibi Figure', 'Hirono Chibi Figure (model2) designer toy figurine.', 300.00, 499.00, 20, 'Standard', '1/12 (8.33%)'),
-(4, 1, 1, 'Hirono Cute Hooded', 'Hirono Cute Hooded (model3) designer toy figurine.', 300.00, 499.00, 10, 'Standard', '1/12 (8.33%)'),
-(5, 1, 1, 'Hirono Dinosaur Hoodie', 'Hirono Dinosaur Hoodie (model4) designer toy figurine.', 300.00, 499.00, 8, 'Standard', '1/12 (8.33%)'),
-(6, 1, 1, 'Hirono Feathered Sheep', 'Hirono Feathered Sheep (model5) designer toy figurine.', 300.00, 499.00, 12, 'Standard', '1/12 (8.33%)'),
-(7, 1, 1, 'Hirono Lantern Headed', 'Hirono Lantern Headed (model6) designer toy figurine.', 300.00, 499.00, 5, 'Standard', '1/12 (8.33%)'),
-(8, 1, 1, 'Hirono Rose Hooded', 'Hirono Rose Hooded (model7) designer toy figurine.', 300.00, 499.00, 14, 'Standard', '1/12 (8.33%)'),
-(9, 1, 1, 'Hirono Royal Prince', 'Hirono Royal Prince (model8) designer toy figurine.', 300.00, 499.00, 6, 'Standard', '1/12 (8.33%)'),
-(10, 1, 1, 'Hirono Chibi Monk', 'Hirono Chibi Monk (model9) designer toy figurine.', 300.00, 499.00, 18, 'Standard', '1/12 (8.33%)');
+-- Seed default suppliers
+INSERT INTO supplier (id, name, contact_person, email, phone, address) VALUES
+(1, 'Pop Mart East Asia', 'Kenji Sato', 'kenji@popmart-ea.com', '+81-3-1234-5678', 'Shibuya 2-Chome, Tokyo, Japan'),
+(2, 'Molly Toys Distribution', 'Sarah Lim', 'sarah.l@mollytoys.sg', '+65-6789-0123', 'Orchard Road, Singapore'),
+(3, 'Finding Unicorn CN', 'Zhao Wei', 'zhao.wei@findingunicorn.cn', '+86-10-8765-4321', 'Chaoyang District, Beijing, China');
+
+INSERT INTO item (id, brand_id, category_id, supplier_id, name, description, cost_price, sell_price, quantity, edition_type, probability) VALUES
+(1, 1, 1, 1, 'Hirono Hero Prince', 'Hirono Hero Prince (PrinceCenter) designer toy figurine.', 350.00, 599.00, 15, 'Secret', '1/144 (0.69%)'),
+(2, 1, 1, 1, 'Hirono Chibi Character', 'Hirono Chibi Character (model1) designer toy figurine.', 300.00, 499.00, 25, 'Standard', '1/12 (8.33%)'),
+(3, 1, 1, 1, 'Hirono Chibi Figure', 'Hirono Chibi Figure (model2) designer toy figurine.', 300.00, 499.00, 20, 'Standard', '1/12 (8.33%)'),
+(4, 1, 1, 2, 'Hirono Cute Hooded', 'Hirono Cute Hooded (model3) designer toy figurine.', 300.00, 499.00, 10, 'Standard', '1/12 (8.33%)'),
+(5, 1, 1, 2, 'Hirono Dinosaur Hoodie', 'Hirono Dinosaur Hoodie (model4) designer toy figurine.', 300.00, 499.00, 8, 'Standard', '1/12 (8.33%)'),
+(6, 1, 1, 2, 'Hirono Feathered Sheep', 'Hirono Feathered Sheep (model5) designer toy figurine.', 300.00, 499.00, 12, 'Standard', '1/12 (8.33%)'),
+(7, 1, 1, 2, 'Hirono Lantern Headed', 'Hirono Lantern Headed (model6) designer toy figurine.', 300.00, 499.00, 5, 'Standard', '1/12 (8.33%)'),
+(8, 1, 1, 3, 'Hirono Rose Hooded', 'Hirono Rose Hooded (model7) designer toy figurine.', 300.00, 499.00, 14, 'Standard', '1/12 (8.33%)'),
+(9, 1, 1, 3, 'Hirono Royal Prince', 'Hirono Royal Prince (model8) designer toy figurine.', 300.00, 499.00, 6, 'Standard', '1/12 (8.33%)'),
+(10, 1, 1, 3, 'Hirono Chibi Monk', 'Hirono Chibi Monk (model9) designer toy figurine.', 300.00, 499.00, 18, 'Standard', '1/12 (8.33%)');
 
 -- Seed item tags
 INSERT INTO item_tags (item_id, tag_id) VALUES

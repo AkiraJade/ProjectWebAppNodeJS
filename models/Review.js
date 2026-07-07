@@ -5,7 +5,8 @@ const Review = sequelize.define('reviews', {
     review_id: {
         type: DataTypes.INTEGER,
         primaryKey: true,
-        autoIncrement: true
+        autoIncrement: true,
+        field: 'id'
     },
     user_id: {
         type: DataTypes.INTEGER,
@@ -28,6 +29,7 @@ const Review = sequelize.define('reviews', {
         defaultValue: DataTypes.NOW
     }
 }, {
+    tableName: 'review',
     timestamps: false
 });
 

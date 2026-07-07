@@ -13,6 +13,7 @@ const Transaction = require('./Transaction');
 const Review = require('./Review');
 const Wishlist = require('./Wishlist');
 const CollectionLog = require('./CollectionLog');
+const Supplier = require('./Supplier');
 
 // Define Relationships
 
@@ -35,6 +36,10 @@ Item.belongsTo(Brand, { foreignKey: 'brand_id', as: 'brand' });
 // Item <-> Category (Many-to-One)
 Category.hasMany(Item, { foreignKey: 'category_id', as: 'items', onDelete: 'RESTRICT' });
 Item.belongsTo(Category, { foreignKey: 'category_id', as: 'category' });
+
+// Item <-> Supplier (Many-to-One)
+Supplier.hasMany(Item, { foreignKey: 'supplier_id', as: 'items', onDelete: 'SET NULL' });
+Item.belongsTo(Supplier, { foreignKey: 'supplier_id', as: 'supplier' });
 
 // Item <-> Tag (Many-to-Many via item_tags pivot table)
 Item.belongsToMany(Tag, { through: 'item_tags', foreignKey: 'item_id', otherKey: 'tag_id', as: 'tags' });
@@ -95,5 +100,6 @@ module.exports = {
     Transaction,
     Review,
     Wishlist,
-    CollectionLog
+    CollectionLog,
+    Supplier
 };

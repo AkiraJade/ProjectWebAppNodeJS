@@ -1,4 +1,4 @@
-const { Item, ItemImage, Category, Tag, sequelize } = require('../models');
+const { Item, ItemImage, Category, Tag, Supplier, sequelize } = require('../models');
 const { Op } = require('sequelize');
 
 exports.getAllItems = async (req, res) => {
@@ -8,7 +8,8 @@ exports.getAllItems = async (req, res) => {
             include: [
                 { model: ItemImage, as: 'images' },
                 { model: Category, as: 'category' },
-                { model: Tag, as: 'tags' }
+                { model: Tag, as: 'tags' },
+                { model: Supplier, as: 'supplier' }
             ]
         });
         
@@ -26,7 +27,8 @@ exports.getAllItems = async (req, res) => {
                 quantity: item.quantity,
                 images: item.images ? item.images.map(img => img.img_path) : [],
                 category: item.category ? [item.category.name] : [],
-                tags: item.tags ? item.tags.map(t => t.name) : []
+                tags: item.tags ? item.tags.map(t => t.name) : [],
+                supplier: item.supplier ? { id: item.supplier.id, name: item.supplier.name, email: item.supplier.email } : null
             };
         });
         
@@ -43,7 +45,8 @@ exports.getSingleItem = async (req, res) => {
             include: [
                 { model: ItemImage, as: 'images' },
                 { model: Category, as: 'category' },
-                { model: Tag, as: 'tags' }
+                { model: Tag, as: 'tags' },
+                { model: Supplier, as: 'supplier' }
             ]
         });
 
@@ -64,7 +67,8 @@ exports.getSingleItem = async (req, res) => {
             quantity: item.quantity,
             images: item.images ? item.images.map(img => img.img_path) : [],
             category: item.category ? [item.category.name] : [],
-            tags: item.tags ? item.tags.map(t => t.name) : []
+            tags: item.tags ? item.tags.map(t => t.name) : [],
+            supplier: item.supplier ? { id: item.supplier.id, name: item.supplier.name, email: item.supplier.email } : null
         }];
 
         return res.status(200).json({ success: true, result });
@@ -77,7 +81,7 @@ exports.getSingleItem = async (req, res) => {
 exports.createItem = async (req, res) => {
     const t = await sequelize.transaction();
     try {
-        const { description, cost_price, sell_price, quantity, tags, category } = req.body;
+        const { description, cost_price, sell_price, quantity, tags, category, supplier_id } = req.body;
         
         if (!description || !cost_price || !sell_price) {
             await t.rollback();
@@ -142,6 +146,7 @@ exports.createItem = async (req, res) => {
         const newItem = await Item.create({
             brand_id: 1, // Default to 'Pop Mart'
             category_id: categoryId,
+            supplier_id: supplier_id ? parseInt(supplier_id) : null,
             description,
             cost_price,
             sell_price,
@@ -185,7 +190,7 @@ exports.updateItem = async (req, res) => {
     const t = await sequelize.transaction();
     try {
         const id = req.params.id;
-        const { description, cost_price, sell_price, quantity, tags, category } = req.body;
+        const { description, cost_price, sell_price, quantity, tags, category, supplier_id } = req.body;
 
         if (!description || !cost_price || !sell_price) {
             await t.rollback();
@@ -282,6 +287,7 @@ exports.updateItem = async (req, res) => {
             cost_price,
             sell_price,
             category_id: categoryId,
+            supplier_id: supplier_id ? parseInt(supplier_id) : null,
             quantity: quantity ? parseInt(quantity) : 0
         };
 

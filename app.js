@@ -12,6 +12,7 @@ const reviews = require('./routes/review');
 const wishlists = require('./routes/wishlist');
 const addresses = require('./routes/address');
 const collection = require('./routes/collection');
+const suppliers = require('./routes/supplier');
 
 // app.get('/', (req, res) => {
 //     res.send('Hello from nodejs!')
@@ -40,5 +41,6 @@ app.use('/api/v1', reviews);
 app.use('/api/v1', wishlists);
 app.use('/api/v1', addresses);
 app.use('/api/v1', collection);
+app.use('/api/v1', suppliers);
 
 module.exports = app

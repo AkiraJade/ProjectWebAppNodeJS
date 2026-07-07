@@ -16,6 +16,11 @@ const Item = sequelize.define('item', {
         type: DataTypes.INTEGER,
         allowNull: false
     },
+    supplier_id: {
+        type: DataTypes.INTEGER,
+        allowNull: true,
+        defaultValue: null
+    },
     description: {
         type: DataTypes.TEXT,
         allowNull: false,

@@ -79,9 +79,11 @@ exports.getDashboardSummary = async (req, res) => {
 
         // 5. Low stock list and count (stock quantity <= 5)
         const lowStockResult = await sequelize.query(
-            `SELECT i.id AS item_id, i.description, i.sell_price, i.quantity, im.image_path AS img_path 
+            `SELECT i.id AS item_id, i.description, i.sell_price, i.quantity, im.image_path AS img_path,
+                    s.name AS supplier_name, s.email AS supplier_email 
              FROM item i 
              LEFT JOIN item_images im ON i.id = im.item_id AND im.is_primary = TRUE 
+             LEFT JOIN supplier s ON i.supplier_id = s.id 
              WHERE i.deleted_at IS NULL AND i.quantity <= 5 
              ORDER BY i.quantity ASC`,
             { type: QueryTypes.SELECT }

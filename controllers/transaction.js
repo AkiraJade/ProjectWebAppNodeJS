@@ -4,6 +4,13 @@ const sendEmail = require('../utils/sendEmail');
 const path = require('path');
 const fs = require('fs');
 
+function resolveFrontendStatus(paymentStatus, orderStatusId) {
+    if (orderStatusId === 5) return 'Cancelled';
+    if (orderStatusId === 4 || orderStatusId === 3) return 'Completed';
+    if (paymentStatus === 'paid' || orderStatusId === 2) return 'Paid';
+    return 'Pending';
+}
+
 // 1. Get All Transactions (Admin Dashboard DataTable)
 exports.getAllTransactions = async (req, res) => {
     try {
@@ -37,12 +44,14 @@ exports.getAllTransactions = async (req, res) => {
             const linesSum = lines.reduce((sum, line) => sum + (parseFloat(line.sell_price) * line.quantity), 0);
             const amount = linesSum + parseFloat(order.shipping || 0);
 
+            const displayStatus = resolveFrontendStatus(tx.status, order.status_id);
+
             return {
                 transaction_id: tx.transaction_id,
                 orderinfo_id: tx.orderinfo_id,
                 amount: amount.toFixed(2),
                 payment_method: tx.payment_method,
-                status: tx.status,
+                status: displayStatus,
                 transaction_date: tx.transaction_date,
                 customer_name: `${customer.fname || ''} ${customer.lname || ''}`.trim() || user.name || 'Anonymous',
                 customer_email: user.email || 'N/A'
@@ -93,6 +102,7 @@ exports.getSingleTransaction = async (req, res) => {
         // Expose virtual amount
         const txData = tx.toJSON();
         txData.amount = amount.toFixed(2);
+        txData.status = resolveFrontendStatus(tx.status, order.status_id);
 
         // Keep compatibility with frontend that expects transaction.order.customer
         if (txData.order && txData.order.user && txData.order.user.customer) {
@@ -143,7 +153,31 @@ exports.updateTransactionStatus = async (req, res) => {
         }
 
         // Update status
-        await transaction.update({ status });
+        let dbPaymentStatus = 'pending';
+        let dbOrderStatusId = 1;
+
+        const norm = String(status).toLowerCase();
+        if (norm === 'paid') {
+            dbPaymentStatus = 'paid';
+            dbOrderStatusId = 2; // Paid
+        } else if (norm === 'completed') {
+            dbPaymentStatus = 'paid';
+            dbOrderStatusId = 4; // Delivered
+        } else if (norm === 'cancelled') {
+            dbPaymentStatus = 'failed';
+            dbOrderStatusId = 5; // Cancelled
+        } else {
+            dbPaymentStatus = 'pending';
+            dbOrderStatusId = 1; // Pending
+        }
+
+        // Update transaction payment status
+        await transaction.update({ status: dbPaymentStatus });
+
+        // Update associated order status_id
+        if (transaction.order) {
+            await transaction.order.update({ status_id: dbOrderStatusId });
+        }
 
         // Retrieve relationships for receipt generation
         const order = transaction.order;
