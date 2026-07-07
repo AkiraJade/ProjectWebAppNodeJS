@@ -305,6 +305,39 @@ CREATE TABLE collection_logs (
 );
 
 -- ------------------------------------------------------------
+-- 15c. Purchase Order Table
+-- ------------------------------------------------------------
+CREATE TABLE purchase_order (
+  id          INT            NOT NULL AUTO_INCREMENT,
+  supplier_id INT            NOT NULL,
+  po_number   VARCHAR(50)    NOT NULL UNIQUE,
+  notes       TEXT           NULL,
+  total_cost  DECIMAL(10, 2) NOT NULL DEFAULT 0.00,
+  created_at  TIMESTAMP      NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  CONSTRAINT fk_po_supplier
+    FOREIGN KEY (supplier_id) REFERENCES supplier (id)
+    ON DELETE RESTRICT ON UPDATE CASCADE
+);
+
+-- ------------------------------------------------------------
+-- 15d. Purchase Order Line Table
+-- ------------------------------------------------------------
+CREATE TABLE purchase_order_line (
+  purchase_order_id INT            NOT NULL,
+  item_id           INT            NOT NULL,
+  quantity          INT            NOT NULL DEFAULT 1,
+  unit_cost         DECIMAL(10, 2) NOT NULL,
+  PRIMARY KEY (purchase_order_id, item_id),
+  CONSTRAINT fk_pol_po
+    FOREIGN KEY (purchase_order_id) REFERENCES purchase_order (id)
+    ON DELETE CASCADE ON UPDATE CASCADE,
+  CONSTRAINT fk_pol_item
+    FOREIGN KEY (item_id) REFERENCES item (id)
+    ON DELETE RESTRICT ON UPDATE CASCADE
+);
+
+-- ------------------------------------------------------------
 -- 16. Seed Initial Data
 -- ------------------------------------------------------------
 

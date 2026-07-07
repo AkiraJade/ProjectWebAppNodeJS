@@ -14,6 +14,8 @@ const Review = require('./Review');
 const Wishlist = require('./Wishlist');
 const CollectionLog = require('./CollectionLog');
 const Supplier = require('./Supplier');
+const PurchaseOrder = require('./PurchaseOrder');
+const PurchaseOrderLine = require('./PurchaseOrderLine');
 
 // Define Relationships
 
@@ -85,6 +87,18 @@ CollectionLog.belongsTo(User, { foreignKey: 'user_id', as: 'user' });
 Item.hasMany(CollectionLog, { foreignKey: 'item_id', as: 'collectionLogs', onDelete: 'CASCADE' });
 CollectionLog.belongsTo(Item, { foreignKey: 'item_id', as: 'item' });
 
+// Supplier <-> PurchaseOrder (One-to-Many)
+Supplier.hasMany(PurchaseOrder, { foreignKey: 'supplier_id', as: 'purchaseOrders', onDelete: 'RESTRICT' });
+PurchaseOrder.belongsTo(Supplier, { foreignKey: 'supplier_id', as: 'supplier' });
+
+// PurchaseOrder <-> PurchaseOrderLine (One-to-Many)
+PurchaseOrder.hasMany(PurchaseOrderLine, { foreignKey: 'purchase_order_id', as: 'lines', onDelete: 'CASCADE' });
+PurchaseOrderLine.belongsTo(PurchaseOrder, { foreignKey: 'purchase_order_id', as: 'purchaseOrder' });
+
+// PurchaseOrderLine <-> Item (Many-to-One)
+PurchaseOrderLine.belongsTo(Item, { foreignKey: 'item_id', as: 'item' });
+Item.hasMany(PurchaseOrderLine, { foreignKey: 'item_id', as: 'purchaseOrderLines' });
+
 module.exports = {
     sequelize,
     User,
@@ -101,5 +115,7 @@ module.exports = {
     Review,
     Wishlist,
     CollectionLog,
-    Supplier
+    Supplier,
+    PurchaseOrder,
+    PurchaseOrderLine
 };
