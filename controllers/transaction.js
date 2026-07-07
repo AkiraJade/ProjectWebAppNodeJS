@@ -174,7 +174,8 @@ exports.updateTransactionStatus = async (req, res) => {
                         attachments: [
                             {
                                 filename: `Invoice-LM-${transaction.transaction_id}.pdf`,
-                                path: receiptPath
+                                path: receiptPath,
+                                contentType: 'application/pdf'
                             }
                         ]
                     });

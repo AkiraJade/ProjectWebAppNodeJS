@@ -1,5 +1,8 @@
 const { Orderinfo, Orderline, Customer, User, Item, Address, Transaction, sequelize } = require('../models');
 const sendEmail = require('../utils/sendEmail');
+const { generateReceiptPDF } = require('../utils/pdfCreator');
+const path = require('path');
+const fs = require('fs');
 
 function mapPaymentMethod(method) {
     const m = String(method).toLowerCase();
@@ -144,16 +147,78 @@ exports.createOrder = async (req, res, next) => {
         await t.commit();
 
         const email = customer.user ? customer.user.email : null;
-        // 4. Send success email
+        // 4. Send order confirmation email with PDF receipt attached
         if (email) {
             try {
+                // Re-fetch order lines with item details for the PDF
+                const orderLines = await Orderline.findAll({
+                    where: { orderinfo_id: orderId },
+                    include: [{ model: Item, as: 'item' }]
+                });
+
+                // Build receipts directory and file path
+                const receiptsDir = path.join(__dirname, '..', 'uploads', 'receipts');
+                const receiptPath = path.join(receiptsDir, `invoice-${newTransaction.transaction_id}.pdf`);
+
+                // Adapt customer object for PDF creator
+                const pdfCustomer = customer.toJSON ? customer.toJSON() : { ...customer };
+                pdfCustomer.user = { email };
+
+                // Generate PDF receipt
+                await generateReceiptPDF(order, newTransaction, pdfCustomer, orderLines, receiptPath);
+
+                // Build a rich HTML email body
+                const hostUrl = `${req.protocol}://${req.get('host')}`;
+                const linesTotal = orderLines.reduce((sum, l) => sum + parseFloat(l.sell_price) * l.quantity, 0);
+                const grandTotal = linesTotal + parseFloat(order.shipping || 0);
+                const lineItemsHtml = orderLines.map(l => `
+                    <tr>
+                        <td style="padding: 8px 0; border-bottom: 1px solid #f0ebe2; color: #1c1c1c; font-size: 14px;">${l.item ? l.item.description : 'Collectible'}</td>
+                        <td style="padding: 8px 0; border-bottom: 1px solid #f0ebe2; color: #766e65; font-size: 14px; text-align: center;">x${l.quantity}</td>
+                        <td style="padding: 8px 0; border-bottom: 1px solid #f0ebe2; color: #1c1c1c; font-size: 14px; text-align: right;">&#36;${(parseFloat(l.sell_price) * l.quantity).toFixed(2)}</td>
+                    </tr>`).join('');
+
+                const htmlMessage = `
+                    <div style="font-family: Arial, sans-serif; max-width: 620px; margin: 0 auto; padding: 30px 20px; border: 1px solid #c5a880; border-radius: 12px; background-color: #faf9f6;">
+                        <h2 style="color: #1c1c1c; font-size: 22px; letter-spacing: 2px; text-align: center; margin-bottom: 4px;">LITTLE MONO</h2>
+                        <p style="color: #c5a880; font-size: 11px; text-align: center; letter-spacing: 1px; margin-top: 0;">AUTHENTIC POP MART COLLECTIBLES</p>
+                        <hr style="border: none; border-top: 1px solid #e5dfd2; margin: 20px 0;">
+                        <h3 style="color: #1c1c1c;">Order Confirmed! &#127881;</h3>
+                        <p style="color: #766e65; font-size: 15px;">Hi <strong>${customer.fname || 'Collector'}</strong>, your order has been successfully placed. We&rsquo;re excited to get your collectibles on their way!</p>
+                        <table style="width: 100%; border-collapse: collapse; margin: 20px 0;">
+                            <thead>
+                                <tr>
+                                    <th style="text-align: left; font-size: 12px; color: #c5a880; padding-bottom: 8px; border-bottom: 1px solid #c5a880;">ITEM</th>
+                                    <th style="text-align: center; font-size: 12px; color: #c5a880; padding-bottom: 8px; border-bottom: 1px solid #c5a880;">QTY</th>
+                                    <th style="text-align: right; font-size: 12px; color: #c5a880; padding-bottom: 8px; border-bottom: 1px solid #c5a880;">SUBTOTAL</th>
+                                </tr>
+                            </thead>
+                            <tbody>${lineItemsHtml}</tbody>
+                        </table>
+                        <table style="width: 100%; margin-top: 10px;">
+                            <tr><td style="color: #766e65; font-size: 13px;">Shipping Fee</td><td style="text-align: right; color: #766e65; font-size: 13px;">&#36;${parseFloat(order.shipping || 0).toFixed(2)}</td></tr>
+                            <tr><td style="color: #1c1c1c; font-size: 15px; font-weight: bold; padding-top: 8px;">Grand Total</td><td style="text-align: right; color: #c5a880; font-size: 15px; font-weight: bold; padding-top: 8px;">&#36;${grandTotal.toFixed(2)}</td></tr>
+                        </table>
+                        <hr style="border: none; border-top: 1px solid #e5dfd2; margin: 24px 0;">
+                        <p style="color: #766e65; font-size: 13px;"><strong>Order #:</strong> ${orderId} &nbsp;|&nbsp; <strong>Transaction #:</strong> ${newTransaction.transaction_id} &nbsp;|&nbsp; <strong>Payment:</strong> ${newTransaction.payment_method}</p>
+                        <div style="text-align: center; margin: 24px 0;">
+                            <a href="${hostUrl}/uploads/receipts/invoice-${newTransaction.transaction_id}.pdf" style="background-color: #1c1c1c; color: #faf9f6; text-decoration: none; padding: 12px 30px; border-radius: 50px; font-weight: bold; font-size: 15px; display: inline-block; letter-spacing: 0.5px;">&#128196; Download Receipt (PDF)</a>
+                        </div>
+                        <p style="color: #766e65; font-size: 13px; text-align: center;">Thank you for shopping with Little Mono! &#x1F381;</p>
+                    </div>`;
+
                 await sendEmail({
                     email,
-                    subject: 'Order Success — Little Mono',
-                    message: `Hi ${customer.fname || 'Collector'}, your figurine order #${orderId} has been successfully placed! Your transaction #${newTransaction.transaction_id} is pending verification.`
+                    subject: `Order #${orderId} Confirmed — Little Mono`,
+                    message: htmlMessage,
+                    attachments: [{
+                        filename: `Receipt-LM-${newTransaction.transaction_id}.pdf`,
+                        path: receiptPath,
+                        contentType: 'application/pdf'
+                    }]
                 });
             } catch (emailErr) {
-                console.error('Email notification failed:', emailErr);
+                console.error('Order confirmation email/PDF failed:', emailErr);
             }
         }
 

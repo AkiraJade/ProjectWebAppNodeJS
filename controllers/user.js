@@ -2,6 +2,32 @@ const { User, Customer, Address, sequelize } = require('../models');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 
+// Helper to dynamically get the client URL from request headers (referer or origin)
+const getClientUrl = (req) => {
+    if (process.env.CLIENT_URL) {
+        return process.env.CLIENT_URL;
+    }
+    if (req.headers.referer) {
+        try {
+            const parsed = new URL(req.headers.referer);
+            const pathParts = parsed.pathname.split('/');
+            pathParts.pop(); // Remove the page name (e.g. register.html or forgot-password.html)
+            return `${parsed.origin}${pathParts.join('/')}`;
+        } catch (e) {
+            // Ignore URL parsing errors and fallback
+        }
+    }
+    if (req.headers.origin) {
+        const origin = req.headers.origin;
+        // If origin is a local address, append the project subfolder path
+        if (origin.includes('localhost') || origin.includes('127.0.0.1')) {
+            return `${origin}/ProjectWebAppJs-master`;
+        }
+        return origin;
+    }
+    return 'http://localhost/ProjectWebAppJs-master';
+};
+
 // 1. User Registration (transactional creation)
 const registerUser = async (req, res) => {
     const t = await sequelize.transaction();
@@ -102,7 +128,8 @@ const registerUser = async (req, res) => {
         // Send verification email
         try {
             const sendEmail = require('../utils/sendEmail');
-            const verifyUrl = `http://localhost/ProjectWebAppJs/verify.html?email=${encodeURIComponent(email)}&token=${verificationToken}`;
+            const verifyUrl = `${getClientUrl(req)}/verify.html?email=${encodeURIComponent(email)}&token=${verificationToken}`;
+            console.log('--- GENERATED VERIFY URL:', verifyUrl);
             const message = `
                 <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #c5a880; border-radius: 12px; background-color: #faf9f6;">
                     <h2 style="color: #1c1c1c; font-family: 'Outfit', sans-serif;">Welcome to Little Mono!</h2>
@@ -462,7 +489,7 @@ const forgotPassword = async (req, res) => {
 
         // Import sendEmail
         const sendEmail = require('../utils/sendEmail');
-        const resetUrl = `http://localhost/ProjectWebAppJs/reset-password.html?email=${encodeURIComponent(email)}&token=${resetToken}`;
+        const resetUrl = `${getClientUrl(req)}/reset-password.html?email=${encodeURIComponent(email)}&token=${resetToken}`;
         
         const message = `
             <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #c5a880; border-radius: 12px; background-color: #faf9f6;">

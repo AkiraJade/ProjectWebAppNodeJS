@@ -1,4 +1,5 @@
 const nodemailer = require('nodemailer');
+const fs = require('fs');
 
 const sendEmail = async (options) => {
     const useSMTP = process.env.SMTP_HOST && process.env.SMTP_EMAIL;
@@ -7,7 +8,8 @@ const sendEmail = async (options) => {
     if (useSMTP) {
         transporter = nodemailer.createTransport({
             host: process.env.SMTP_HOST,
-            port: process.env.SMTP_PORT,
+            port: parseInt(process.env.SMTP_PORT, 10), // must be a number, not a string
+            secure: false, // STARTTLS — required for port 2525 (Mailtrap sandbox)
             auth: {
                 user: process.env.SMTP_EMAIL,
                 pass: process.env.SMTP_PASSWORD
@@ -49,10 +51,21 @@ const sendEmail = async (options) => {
         attachments: options.attachments || []
     };
 
+    // Log outgoing email details (always, for debugging)
+    console.log(`[EMAIL] Sending to: ${message.to} | Subject: ${message.subject}`);
+    if (message.attachments.length > 0) {
+        message.attachments.forEach(att => {
+            const exists = fs.existsSync(att.path);
+            const size   = exists ? fs.statSync(att.path).size : 0;
+            console.log(`[EMAIL] Attachment: ${att.filename} | Path: ${att.path} | Exists: ${exists} | Size: ${size} bytes`);
+        });
+    }
+
     try {
         const info = await transporter.sendMail(message);
+        console.log(`[EMAIL] Sent OK. MessageId: ${info.messageId}`);
         if (!useSMTP) {
-            console.log(`[EMAIL LOG] Test message sent successfully. Preview URL: ${nodemailer.getTestMessageUrl(info)}`);
+            console.log(`[EMAIL LOG] Preview URL: ${nodemailer.getTestMessageUrl(info)}`);
         }
     } catch (sendErr) {
         console.error("Mail transmission failed:", sendErr);
@@ -60,3 +73,4 @@ const sendEmail = async (options) => {
 };
 
 module.exports = sendEmail;
+
